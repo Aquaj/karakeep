@@ -65,9 +65,14 @@ export function useSetPdfPreviewFromPage(
         queryClient.invalidateQueries(
           api.bookmarks.searchBookmarks.pathFilter(),
         );
-        queryClient.invalidateQueries(
-          api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
-        );
+        // "all": cards keep their own cached copy of the bookmark, which may
+        // be inactive (and is persisted) while the PDF viewer is on top.
+        queryClient.invalidateQueries({
+          ...api.bookmarks.getBookmark.queryFilter({
+            bookmarkId: req.bookmarkId,
+          }),
+          refetchType: "all",
+        });
         queryClient.invalidateQueries(api.assets.list.pathFilter());
         return opts?.onSuccess?.(res, req, meta, context);
       },

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import useAppSettings from "@/lib/settings";
 import QueryPageState from "@/components/QueryPageState";
@@ -23,6 +24,7 @@ export default function UpdatingBookmarkList({
     isPending,
     isPlaceholderData,
     error,
+    dataUpdatedAt,
     fetchNextPage,
     hasNextPage,
     isFetching,
@@ -42,6 +44,29 @@ export default function UpdatingBookmarkList({
       },
     ),
   );
+
+  // Each card renders its own getBookmark query, seeded from the list only on
+  // first mount and persisted across restarts, so a list refresh alone never
+  // reached it. Push the list's copy into the cards' entries when it's newer.
+  // Structural sharing keeps unchanged bookmarks referentially equal across
+  // fetches, so only objects not pushed before carry fresh data (loading the
+  // next page must not replay page one over fresher card data).
+  const pushedBookmarks = useRef(new WeakSet<object>());
+  useEffect(() => {
+    if (!data) return;
+    for (const bookmark of data.pages.flatMap((p) => p.bookmarks)) {
+      if (pushedBookmarks.current.has(bookmark)) continue;
+      pushedBookmarks.current.add(bookmark);
+      const queryKey = api.bookmarks.getBookmark.queryKey({
+        bookmarkId: bookmark.id,
+      });
+      const cached = queryClient.getQueryState(queryKey);
+      if (cached && cached.dataUpdatedAt >= dataUpdatedAt) continue;
+      queryClient.setQueryData(queryKey, bookmark, {
+        updatedAt: dataUpdatedAt,
+      });
+    }
+  }, [api, queryClient, data, dataUpdatedAt]);
 
   if (!data) {
     return <QueryPageState error={error} onRetry={() => refetch()} />;
