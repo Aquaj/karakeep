@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 
+const BUSY_TIMEOUT_MS = 30_000;
+
 interface OpenSqliteOptions {
   readOnly: boolean;
   walMode: boolean;
@@ -9,15 +11,13 @@ export function openSqliteDatabase(
   filename: string,
   options: OpenSqliteOptions,
 ) {
-  const sqlite = new Database(
-    filename,
-    options.readOnly
-      ? {
-          readonly: true,
-          fileMustExist: true,
-        }
-      : undefined,
-  );
+  const sqlite = new Database(filename, {
+    // better-sqlite3 defaults to 5 s; on a saturated disk a single write can
+    // take longer than that, and a thrown "database is locked" takes the
+    // whole worker set down. Prefer stalling to crashing.
+    timeout: BUSY_TIMEOUT_MS,
+    ...(options.readOnly ? { readonly: true, fileMustExist: true } : {}),
+  });
 
   if (!options.readOnly) {
     if (options.walMode) {

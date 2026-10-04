@@ -6,12 +6,37 @@ import { Text } from "@/components/ui/Text";
 import { useQuery } from "@tanstack/react-query";
 import { useColorScheme } from "nativewind";
 
+/** Small non-cryptographic hash, enough to derive a stable cache file name */
+function hashString(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(16);
+}
+
+const PDF_CACHE_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/pdfs`;
+
 interface PDFViewerProps {
   source: string;
   headers?: Record<string, string>;
+  /**
+   * 1-based page to jump to; changing it scrolls the viewer. Only set this
+   * once onLoadComplete has fired: the native view jumps unconditionally and
+   * crashes if the document isn't loaded yet.
+   */
+  page?: number;
+  onLoadComplete?: (numberOfPages: number) => void;
+  onPageChanged?: (page: number, numberOfPages: number) => void;
 }
 
-export function PDFViewer({ source, headers }: PDFViewerProps) {
+export function PDFViewer({
+  source,
+  headers,
+  page,
+  onLoadComplete,
+  onPageChanged,
+}: PDFViewerProps) {
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -26,19 +51,39 @@ export function PDFViewer({ source, headers }: PDFViewerProps) {
     isLoading,
     error: downloadError,
   } = useQuery({
-    queryKey: ["pdf", source],
+    // "v2": earlier builds persisted paths to temp files that no longer exist
+    // (the query cache survives app updates for a week).
+    queryKey: ["pdf", "v2", source],
     queryFn: async () => {
-      // Create a temporary filename
-      const fileName = `temp_${Date.now()}.pdf`;
-      const { dirs } = ReactNativeBlobUtil.fs;
-      const path = `${dirs.DocumentDir}/${fileName}`;
+      // One stable file per document in the OS-purgeable cache dir. Reopening
+      // a PDF reuses it instead of re-downloading. The query is always stale
+      // so a persisted path gets re-validated against the filesystem.
+      const path = `${PDF_CACHE_DIR}/${hashString(source)}.pdf`;
+      const fs = ReactNativeBlobUtil.fs;
+      if (await fs.exists(path)) {
+        const stat = await fs.stat(path);
+        if (Number(stat.size) > 0) {
+          return path;
+        }
+        await fs.unlink(path).catch(() => ({}));
+      }
+      if (!(await fs.exists(PDF_CACHE_DIR))) {
+        await fs.mkdir(PDF_CACHE_DIR).catch(() => ({}));
+      }
 
       const response = await ReactNativeBlobUtil.config({
         fileCache: true,
         path,
       }).fetch("GET", source, headers ?? {});
+      const status = response.info().status;
+      if (status >= 400) {
+        // Don't leave an error page behind masquerading as a PDF
+        await fs.unlink(path).catch(() => ({}));
+        throw new Error(`Failed to download PDF: ${status}`);
+      }
       return response.path();
     },
+    staleTime: 0,
     enabled: !!source,
   });
 
@@ -64,14 +109,10 @@ export function PDFViewer({ source, headers }: PDFViewerProps) {
     return null;
   }, [downloadError, pdfRenderError]);
 
-  // Cleanup function to remove temporary file on unmount
+  // A render error belongs to the file it happened on
   useEffect(() => {
-    return () => {
-      if (localPath) {
-        ReactNativeBlobUtil.fs.unlink(localPath).catch(() => ({}));
-      }
-    };
-  }, [source, headers]);
+    setPdfRenderError(null);
+  }, [localPath]);
 
   if (error) {
     return (
@@ -103,7 +144,9 @@ export function PDFViewer({ source, headers }: PDFViewerProps) {
         source={{ uri: `file://${localPath}`, cache: true }}
         spacing={16}
         maxScale={3}
-        onLoadComplete={() => ({})}
+        page={page}
+        onPageChanged={onPageChanged}
+        onLoadComplete={(numberOfPages) => onLoadComplete?.(numberOfPages)}
         onError={() => setPdfRenderError("Failed to render PDF")}
         trustAllCerts={false}
         renderActivityIndicator={() => (
