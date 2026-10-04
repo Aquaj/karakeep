@@ -20,6 +20,28 @@ const IDLE_SAVE_DELAY_MS = 5000;
 /** Delay after the last scroll event before hiding the progress bar (milliseconds) */
 const PROGRESS_BAR_HIDE_DELAY_MS = 2000;
 
+/**
+ * Pluggable position strategy. The default one walks the rendered HTML (text
+ * offsets + paragraph anchors); non-textual content (e.g. PDF pages) supplies
+ * its own.
+ */
+export interface ReadingPositionStrategy {
+  /** Computes the current position for the content inside `container`, or null if unknown */
+  getPosition: (container: HTMLElement) => ReadingPosition | null;
+  /** Scrolls `container`'s content to a previously saved position */
+  scrollToPosition: (
+    container: HTMLElement,
+    offset: number,
+    anchor: string | null | undefined,
+  ) => void;
+}
+
+const DOM_TEXT_STRATEGY: ReadingPositionStrategy = {
+  getPosition: getReadingPosition,
+  scrollToPosition: (container, offset, anchor) =>
+    scrollToReadingPosition(container, offset, "smooth", anchor),
+};
+
 interface ScrollProgressTrackerProps {
   /** Called lazily on intent signals (idle, visibility change, beforeunload, unmount) — use for persisting position */
   onSavePosition?: (position: ReadingPosition) => void;
@@ -29,6 +51,8 @@ interface ScrollProgressTrackerProps {
   restorePosition?: boolean;
   readingProgressOffset?: number | null;
   readingProgressAnchor?: string | null;
+  /** How positions are measured and restored; defaults to the HTML text strategy */
+  strategy?: ReadingPositionStrategy;
   /** Show a Medium-style reading progress bar at the top */
   showProgressBar?: boolean;
   /** Custom styles for the progress bar container (e.g. positioning overrides) */
@@ -51,6 +75,7 @@ const ScrollProgressTracker = forwardRef<
     restorePosition,
     readingProgressOffset,
     readingProgressAnchor,
+    strategy = DOM_TEXT_STRATEGY,
     showProgressBar,
     progressBarStyle,
     children,
@@ -65,9 +90,11 @@ const ScrollProgressTracker = forwardRef<
 
   const onSavePositionRef = useRef(onSavePosition);
   const onScrollPositionChangeRef = useRef(onScrollPositionChange);
+  const strategyRef = useRef(strategy);
   useEffect(() => {
     onSavePositionRef.current = onSavePosition;
     onScrollPositionChangeRef.current = onScrollPositionChange;
+    strategyRef.current = strategy;
   });
 
   // Restore reading position when triggered
@@ -86,10 +113,9 @@ const ScrollProgressTracker = forwardRef<
       const container = containerRef.current;
       if (!container) return;
 
-      scrollToReadingPosition(
+      strategyRef.current.scrollToPosition(
         container,
         readingProgressOffset,
-        "smooth",
         readingProgressAnchor,
       );
     });
@@ -118,7 +144,7 @@ const ScrollProgressTracker = forwardRef<
     const processScroll = () => {
       lastScrollTime = Date.now();
 
-      const position = getReadingPosition(container);
+      const position = strategyRef.current.getPosition(container);
       if (position) {
         setScrollPercent(position.percent);
         latestPositionRef.current = position;
