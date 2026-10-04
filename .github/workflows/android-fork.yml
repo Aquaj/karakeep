@@ -1,0 +1,72 @@
+# Fork-only: builds an installable Android APK of the mobile app without EAS
+# or any Expo/Sentry credentials. Uses the "development" variant (package
+# app.hoarder.hoardermobile.dev, named "Karakeep (Dev)") so it installs next
+# to the store app instead of conflicting with its signature. Signed with the
+# debug keystore Expo's template uses for release builds.
+name: Build fork APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feat/**"
+    paths:
+      - "apps/mobile/**"
+      - "packages/shared-react/**"
+      - ".github/workflows/android-fork.yml"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./tooling/github/setup
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: "platform-tools"
+
+      - name: Prebuild android project
+        working-directory: apps/mobile
+        env:
+          APP_VARIANT: development
+          SENTRY_DISABLE_AUTO_UPLOAD: "true"
+          EXPO_NO_TELEMETRY: "1"
+          CI: "1"
+        run: pnpm exec expo prebuild --platform android --no-install
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        env:
+          APP_VARIANT: development
+          SENTRY_DISABLE_AUTO_UPLOAD: "true"
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          apk=$(ls apps/mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          mkdir -p out
+          cp "$apk" "out/karakeep-dev-${SHA::7}.apk"
+          ls -la out
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: karakeep-dev-apk
+          path: out/*.apk
+          retention-days: 14
