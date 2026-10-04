@@ -228,8 +228,7 @@ export default function PdfReaderView({
 
   const { mutate: setPdfPreview, isPending: isSettingPreview } =
     useSetPdfPreviewFromPage({
-      onSuccess: () =>
-        toast({ description: t("preview.pdf.preview_updated") }),
+      onSuccess: () => toast({ description: t("preview.pdf.preview_updated") }),
       onError: (e) => toast({ description: e.message, variant: "destructive" }),
     });
 
