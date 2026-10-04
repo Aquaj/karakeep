@@ -1,6 +1,10 @@
+"use client";
+
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
+import { FullPageSpinner } from "@/components/ui/full-page-spinner";
 import {
   Select,
   SelectContent,
@@ -16,6 +20,12 @@ import { getAssetUrl } from "@karakeep/shared/utils/assetUtils";
 
 // 20 MB
 const BIG_FILE_SIZE = 20 * 1024 * 1024;
+
+// pdf.js only runs in the browser
+const PdfReaderView = dynamic(() => import("./PdfReaderView"), {
+  ssr: false,
+  loading: () => <FullPageSpinner />,
+});
 
 function PDFContentSection({ bookmark }: { bookmark: ZBookmark }) {
   if (bookmark.content.type != BookmarkTypes.ASSET) {
@@ -44,45 +54,47 @@ function PDFContentSection({ bookmark }: { bookmark: ZBookmark }) {
     (r) => r.assetType === "assetScreenshot",
   )?.id;
 
-  const content =
-    section === "screenshot" && screenshot ? (
-      <div className="relative h-full min-w-full">
-        <Image
-          alt="screenshot"
-          src={getAssetUrl(screenshot)}
-          fill={true}
-          unoptimized
-          className="object-contain"
-        />
+  const sectionSelect = (
+    <Select onValueChange={setSection} value={section}>
+      <SelectTrigger className="w-fit">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value="screenshot" disabled={!screenshot}>
+            {t("common.screenshot")}
+          </SelectItem>
+          <SelectItem value="pdf">PDF</SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+
+  if (section === "screenshot" && screenshot) {
+    return (
+      <div className="flex h-full flex-col items-center gap-2">
+        <div className="flex w-full items-center justify-center gap-4">
+          {sectionSelect}
+        </div>
+        <div className="relative h-full min-w-full">
+          <Image
+            alt="screenshot"
+            src={getAssetUrl(screenshot)}
+            fill={true}
+            unoptimized
+            className="object-contain"
+          />
+        </div>
       </div>
-    ) : (
-      <embed
-        title={bookmark.content.assetId}
-        type="application/pdf"
-        className="h-full w-full"
-        src={getAssetUrl(bookmark.content.assetId)}
-      />
     );
+  }
 
   return (
-    <div className="flex h-full flex-col items-center gap-2">
-      <div className="flex w-full items-center justify-center gap-4">
-        <Select onValueChange={setSection} value={section}>
-          <SelectTrigger className="w-fit">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="screenshot" disabled={!screenshot}>
-                {t("common.screenshot")}
-              </SelectItem>
-              <SelectItem value="pdf">PDF</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
-      {content}
-    </div>
+    <PdfReaderView
+      bookmarkId={bookmark.id}
+      assetId={bookmark.content.assetId}
+      toolbarLeading={sectionSelect}
+    />
   );
 }
 
