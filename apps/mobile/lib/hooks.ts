@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { useTRPC } from "@karakeep/shared-react/trpc";
@@ -12,10 +13,15 @@ interface AssetSource {
 
 export function useAssetUrl(assetId: string): AssetSource {
   const { settings } = useAppSettings();
-  return {
-    uri: `${settings.address}/api/assets/${assetId}`,
-    headers: buildApiHeaders(settings.apiKey, settings.customHeaders),
-  };
+  // Memoised so consumers can use the source in effect deps without it
+  // changing identity on every render.
+  return useMemo(
+    () => ({
+      uri: `${settings.address}/api/assets/${assetId}`,
+      headers: buildApiHeaders(settings.apiKey, settings.customHeaders),
+    }),
+    [assetId, settings.address, settings.apiKey, settings.customHeaders],
+  );
 }
 
 export function useServerVersion() {

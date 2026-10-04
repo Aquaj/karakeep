@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import ReactNativeBlobUtil from "react-native-blob-util";
 import Pdf from "react-native-pdf";
@@ -72,14 +72,24 @@ export function PDFViewer({
     return null;
   }, [downloadError, pdfRenderError]);
 
-  // Cleanup function to remove temporary file on unmount
+  // Remove the temporary file on unmount or when the document changes. Track
+  // the path in a ref: re-running this effect on every render (e.g. headers
+  // object identity) used to delete the file while it was being displayed.
+  const localPathRef = useRef<string | undefined>(undefined);
+  localPathRef.current = localPath;
   useEffect(() => {
     return () => {
-      if (localPath) {
-        ReactNativeBlobUtil.fs.unlink(localPath).catch(() => ({}));
+      const path = localPathRef.current;
+      if (path) {
+        ReactNativeBlobUtil.fs.unlink(path).catch(() => ({}));
       }
     };
-  }, [source, headers]);
+  }, [source]);
+
+  // A render error belongs to the file it happened on
+  useEffect(() => {
+    setPdfRenderError(null);
+  }, [localPath]);
 
   if (error) {
     return (

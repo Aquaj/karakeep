@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, TouchableOpacity, View } from "react-native";
 import ImageView from "react-native-image-viewing";
 import BookmarkAssetImage from "@/components/bookmarks/BookmarkAssetImage";
@@ -13,6 +13,9 @@ import { BookmarkTypes, ZBookmark } from "@karakeep/shared/types/bookmarks";
 interface BookmarkAssetViewProps {
   bookmark: ZBookmark;
 }
+
+/** How long the reading progress bar stays visible after a page change */
+const PROGRESS_BAR_HIDE_DELAY_MS = 2000;
 
 /**
  * PDF reading progress is page-based: the saved offset is the current page,
@@ -38,6 +41,14 @@ function PdfAssetView({
   } = useReadingProgress({ bookmarkId });
 
   const [targetPage, setTargetPage] = useState<number | undefined>(undefined);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressBarVisible, setProgressBarVisible] = useState(false);
+  const hideBarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (hideBarTimer.current) clearTimeout(hideBarTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (restorePosition && readingProgressOffset && readingProgressOffset > 0) {
@@ -55,6 +66,13 @@ function PdfAssetView({
             ? Math.min(100, Math.round((page / numberOfPages) * 100))
             : 0,
       };
+      setProgressPercent(position.percent);
+      setProgressBarVisible(true);
+      if (hideBarTimer.current) clearTimeout(hideBarTimer.current);
+      hideBarTimer.current = setTimeout(
+        () => setProgressBarVisible(false),
+        PROGRESS_BAR_HIDE_DELAY_MS,
+      );
       onScrollPositionChange(position);
       onSavePosition(position);
     },
@@ -84,12 +102,25 @@ function PdfAssetView({
           </TouchableOpacity>
         </View>
       )}
-      <PDFViewer
-        source={assetSource.uri ?? ""}
-        headers={assetSource.headers}
-        page={targetPage}
-        onPageChanged={handlePageChanged}
-      />
+      <View className="relative flex-1">
+        <PDFViewer
+          source={assetSource.uri ?? ""}
+          headers={assetSource.headers}
+          page={targetPage}
+          onPageChanged={handlePageChanged}
+        />
+        {progressBarVisible && (
+          <View
+            pointerEvents="none"
+            className="absolute left-0 right-0 top-0 h-[3px]"
+          >
+            <View
+              className="h-full bg-orange-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </View>
+        )}
+      </View>
     </View>
   );
 }
