@@ -1,0 +1,61 @@
+# Fork-only: builds the all-in-one image for the branches we deploy from and
+# pushes it to this fork's GHCR namespace. Upstream's docker.yml stays untouched
+# so the fork rebases cleanly.
+name: Build fork image
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  workflow_dispatch:
+
+jobs:
+  aio:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GitHub Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          branch_tag="$(echo "${REF_NAME}" | tr '/' '-')"
+          echo "repo=ghcr.io/${owner}/karakeep" >> "$GITHUB_OUTPUT"
+          echo "branch_tag=${branch_tag}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${branch_tag}-${SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push aio (amd64)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: aio
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            SERVER_VERSION=${{ steps.meta.outputs.sha_tag }}
+          tags: |
+            ${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.branch_tag }}
+            ${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
