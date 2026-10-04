@@ -1,10 +1,21 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import ReactNativeBlobUtil from "react-native-blob-util";
 import Pdf from "react-native-pdf";
 import { Text } from "@/components/ui/Text";
 import { useQuery } from "@tanstack/react-query";
 import { useColorScheme } from "nativewind";
+
+/** Small non-cryptographic hash, enough to derive a stable cache file name */
+function hashString(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(16);
+}
+
+const PDF_CACHE_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/pdfs`;
 
 interface PDFViewerProps {
   source: string;
@@ -36,17 +47,35 @@ export function PDFViewer({
   } = useQuery({
     queryKey: ["pdf", source],
     queryFn: async () => {
-      // Create a temporary filename
-      const fileName = `temp_${Date.now()}.pdf`;
-      const { dirs } = ReactNativeBlobUtil.fs;
-      const path = `${dirs.DocumentDir}/${fileName}`;
+      // One stable file per document in the OS-purgeable cache dir. Reopening
+      // a PDF reuses it instead of re-downloading (and React Query's cached
+      // path always points at a file that exists).
+      const path = `${PDF_CACHE_DIR}/${hashString(source)}.pdf`;
+      const fs = ReactNativeBlobUtil.fs;
+      if (await fs.exists(path)) {
+        const stat = await fs.stat(path);
+        if (Number(stat.size) > 0) {
+          return path;
+        }
+        await fs.unlink(path).catch(() => ({}));
+      }
+      if (!(await fs.exists(PDF_CACHE_DIR))) {
+        await fs.mkdir(PDF_CACHE_DIR).catch(() => ({}));
+      }
 
       const response = await ReactNativeBlobUtil.config({
         fileCache: true,
         path,
       }).fetch("GET", source, headers ?? {});
+      const status = response.info().status;
+      if (status >= 400) {
+        // Don't leave an error page behind masquerading as a PDF
+        await fs.unlink(path).catch(() => ({}));
+        throw new Error(`Failed to download PDF: ${status}`);
+      }
       return response.path();
     },
+    staleTime: Infinity,
     enabled: !!source,
   });
 
@@ -71,20 +100,6 @@ export function PDFViewer({
     }
     return null;
   }, [downloadError, pdfRenderError]);
-
-  // Remove the temporary file on unmount or when the document changes. Track
-  // the path in a ref: re-running this effect on every render (e.g. headers
-  // object identity) used to delete the file while it was being displayed.
-  const localPathRef = useRef<string | undefined>(undefined);
-  localPathRef.current = localPath;
-  useEffect(() => {
-    return () => {
-      const path = localPathRef.current;
-      if (path) {
-        ReactNativeBlobUtil.fs.unlink(path).catch(() => ({}));
-      }
-    };
-  }, [source]);
 
   // A render error belongs to the file it happened on
   useEffect(() => {
