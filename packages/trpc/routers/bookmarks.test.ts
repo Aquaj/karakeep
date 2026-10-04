@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { assert, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
+  assets,
+  AssetTypes,
   bookmarkLinks,
   bookmarks,
   rssFeedImportsTable,
@@ -1503,7 +1505,72 @@ describe("Bookmark Routes", () => {
           readingProgressOffset: 100,
         }),
       ).rejects.toThrow(
-        /Reading progress can only be saved for link bookmarks/,
+        /Reading progress can only be saved for link bookmarks and PDF assets/,
+      );
+    });
+
+    test<CustomTestContext>("saves page-based reading progress on PDF asset bookmark", async ({
+      apiCallers,
+      db,
+    }) => {
+      const api = apiCallers[0].bookmarks;
+      const userId = await apiCallers[0].users.whoami().then((u) => u.id);
+
+      await db.insert(assets).values({
+        id: "pdf-asset",
+        assetType: AssetTypes.USER_UPLOADED,
+        contentType: "application/pdf",
+        size: 1024,
+        userId,
+      });
+      const bookmark = await api.createBookmark({
+        type: BookmarkTypes.ASSET,
+        assetType: "pdf",
+        assetId: "pdf-asset",
+        fileName: "paper.pdf",
+      });
+
+      await api.updateReadingProgress({
+        bookmarkId: bookmark.id,
+        readingProgressOffset: 12,
+        readingProgressPercent: 40,
+      });
+
+      const progress = await api.getReadingProgress({
+        bookmarkId: bookmark.id,
+      });
+      expect(progress.readingProgressOffset).toBe(12);
+      expect(progress.readingProgressAnchor).toBeNull();
+      expect(progress.readingProgressPercent).toBe(40);
+    });
+
+    test<CustomTestContext>("rejects reading progress on image asset bookmark", async ({
+      apiCallers,
+      db,
+    }) => {
+      const api = apiCallers[0].bookmarks;
+      const userId = await apiCallers[0].users.whoami().then((u) => u.id);
+
+      await db.insert(assets).values({
+        id: "image-asset",
+        assetType: AssetTypes.USER_UPLOADED,
+        contentType: "image/png",
+        size: 1024,
+        userId,
+      });
+      const bookmark = await api.createBookmark({
+        type: BookmarkTypes.ASSET,
+        assetType: "image",
+        assetId: "image-asset",
+      });
+
+      await expect(() =>
+        api.updateReadingProgress({
+          bookmarkId: bookmark.id,
+          readingProgressOffset: 1,
+        }),
+      ).rejects.toThrow(
+        /Reading progress can only be saved for link bookmarks and PDF assets/,
       );
     });
 

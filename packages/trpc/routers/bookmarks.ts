@@ -855,14 +855,26 @@ export const bookmarksAppRouter = router({
     )
     .use(ensureBookmarkAccess)
     .mutation(async ({ input, ctx }) => {
-      // Validate this is a LINK bookmark - reading progress only applies to links
-      const linkBookmark = await ctx.db.query.bookmarkLinks.findFirst({
-        where: eq(bookmarkLinks.id, input.bookmarkId),
-      });
-      if (!linkBookmark) {
+      // Reading progress applies to link bookmarks (cached article) and to
+      // PDF assets (page-based). Other bookmark types have nothing to resume.
+      const [linkBookmark, pdfAsset] = await Promise.all([
+        ctx.db.query.bookmarkLinks.findFirst({
+          where: eq(bookmarkLinks.id, input.bookmarkId),
+          columns: { id: true },
+        }),
+        ctx.db.query.bookmarkAssets.findFirst({
+          where: and(
+            eq(bookmarkAssets.id, input.bookmarkId),
+            eq(bookmarkAssets.assetType, "pdf"),
+          ),
+          columns: { id: true },
+        }),
+      ]);
+      if (!linkBookmark && !pdfAsset) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Reading progress can only be saved for link bookmarks",
+          message:
+            "Reading progress can only be saved for link bookmarks and PDF assets",
         });
       }
 
