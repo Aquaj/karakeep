@@ -191,7 +191,12 @@ export default function PdfReaderView({
     readingProgressAnchor,
     onSavePosition,
     onScrollPositionChange,
-  } = useReadingProgress({ bookmarkId });
+  } = useReadingProgress({
+    bookmarkId,
+    // Page-based: a few pages into a long book is well under 10%
+    bannerMinPercent: 0,
+    bannerMinOffset: 2,
+  });
 
   const handleScrollPositionChange = useCallback(
     (position: ReadingPosition) => {

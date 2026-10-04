@@ -7,6 +7,10 @@ import { useTRPC } from "../trpc";
 
 interface UseReadingProgressOptions {
   bookmarkId: string;
+  /** Minimum saved percentage before the "continue reading" banner shows (default 10) */
+  bannerMinPercent?: number;
+  /** Minimum saved offset before the banner shows (default 1, i.e. any progress) */
+  bannerMinOffset?: number;
 }
 
 /**
@@ -21,7 +25,11 @@ interface UseReadingProgressOptions {
  *
  * Pass the returned `onSavePosition` and `onScrollPositionChange` to ScrollProgressTracker.
  */
-export function useReadingProgress({ bookmarkId }: UseReadingProgressOptions) {
+export function useReadingProgress({
+  bookmarkId,
+  bannerMinPercent = 10,
+  bannerMinOffset = 1,
+}: UseReadingProgressOptions) {
   const api = useTRPC();
   const queryClient = useQueryClient();
 
@@ -73,9 +81,9 @@ export function useReadingProgress({ bookmarkId }: UseReadingProgressOptions) {
   const [restoreRequested, setRestoreRequested] = useState(false);
   const showBanner =
     !!initialOffset &&
-    initialOffset > 0 &&
+    initialOffset >= bannerMinOffset &&
     initialPercent != null &&
-    initialPercent >= 10 &&
+    initialPercent >= bannerMinPercent &&
     initialPercent < 100 &&
     !bannerDismissed;
 

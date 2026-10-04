@@ -38,7 +38,12 @@ function PdfAssetView({
     readingProgressOffset,
     onSavePosition,
     onScrollPositionChange,
-  } = useReadingProgress({ bookmarkId });
+  } = useReadingProgress({
+    bookmarkId,
+    // Page-based: a few pages into a long book is well under 10%
+    bannerMinPercent: 0,
+    bannerMinOffset: 2,
+  });
 
   const [targetPage, setTargetPage] = useState<number | undefined>(undefined);
   const [progressPercent, setProgressPercent] = useState(0);
