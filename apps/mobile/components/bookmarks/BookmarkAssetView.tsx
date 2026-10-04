@@ -45,7 +45,15 @@ function PdfAssetView({
     bannerMinOffset: 2,
   });
 
-  const [targetPage, setTargetPage] = useState<number | undefined>(undefined);
+  // The requested resume page is only handed to the viewer once the document
+  // has loaded (and clamped to its page count): jumping earlier crashes the
+  // native Android view.
+  const [pendingPage, setPendingPage] = useState<number | undefined>(undefined);
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const targetPage =
+    pendingPage !== undefined && numPages !== null
+      ? Math.min(Math.max(pendingPage, 1), numPages)
+      : undefined;
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressBarVisible, setProgressBarVisible] = useState(false);
   const hideBarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,7 +65,7 @@ function PdfAssetView({
 
   useEffect(() => {
     if (restorePosition && readingProgressOffset && readingProgressOffset > 0) {
-      setTargetPage(readingProgressOffset);
+      setPendingPage(readingProgressOffset);
     }
   }, [restorePosition, readingProgressOffset]);
 
@@ -112,6 +120,7 @@ function PdfAssetView({
           source={assetSource.uri ?? ""}
           headers={assetSource.headers}
           page={targetPage}
+          onLoadComplete={setNumPages}
           onPageChanged={handlePageChanged}
         />
         {progressBarVisible && (

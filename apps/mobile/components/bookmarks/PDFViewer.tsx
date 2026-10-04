@@ -20,8 +20,13 @@ const PDF_CACHE_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/pdfs`;
 interface PDFViewerProps {
   source: string;
   headers?: Record<string, string>;
-  /** 1-based page to jump to; changing it scrolls the viewer */
+  /**
+   * 1-based page to jump to; changing it scrolls the viewer. Only set this
+   * once onLoadComplete has fired: the native view jumps unconditionally and
+   * crashes if the document isn't loaded yet.
+   */
   page?: number;
+  onLoadComplete?: (numberOfPages: number) => void;
   onPageChanged?: (page: number, numberOfPages: number) => void;
 }
 
@@ -29,6 +34,7 @@ export function PDFViewer({
   source,
   headers,
   page,
+  onLoadComplete,
   onPageChanged,
 }: PDFViewerProps) {
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
@@ -140,7 +146,7 @@ export function PDFViewer({
         maxScale={3}
         page={page}
         onPageChanged={onPageChanged}
-        onLoadComplete={() => ({})}
+        onLoadComplete={(numberOfPages) => onLoadComplete?.(numberOfPages)}
         onError={() => setPdfRenderError("Failed to render PDF")}
         trustAllCerts={false}
         renderActivityIndicator={() => (
