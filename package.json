@@ -37,8 +37,13 @@
     "@types/node": "^24",
     "oxfmt": "^0.45.0",
     "oxlint": "^1.60.0",
-    "sherif": "^1.6.1",
+    "sherif": "^1.13.0",
     "turbo": "^2.10.13"
   },
-  "packageManager": "pnpm@11.2.1"
+  "packageManager": "pnpm@11.2.1",
+  "sherif": {
+    "ignoreDependency": [
+      "pdfjs-dist"
+    ]
+  }
 }
