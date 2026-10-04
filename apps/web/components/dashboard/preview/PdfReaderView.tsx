@@ -30,6 +30,8 @@ const MAX_PAGE_WIDTH = 900;
 const PAGE_GAP = 16;
 const CONTAINER_PADDING = 16;
 const ZOOM_STEP = 0.25;
+/** Moving this many pages from where the document opened dismisses the resume banner */
+const BANNER_DISMISS_PAGE_DISTANCE = 2;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 /** How far outside the viewport pages are rendered ahead of time */
@@ -164,6 +166,7 @@ export default function PdfReaderView({
 
   // Reset per-document state when the asset changes
   useEffect(() => {
+    startPageRef.current = null;
     setPageSizes(null);
     setLoadError(false);
     setCurrentPage(1);
@@ -196,12 +199,25 @@ export default function PdfReaderView({
     // Page-based: a few pages into a long book is well under 10%
     bannerMinPercent: 0,
     bannerMinOffset: 2,
+    bannerDismissPercent: -1,
   });
 
+  // The hook's percentage-based dismissal suits articles, not a 300-page PDF
+  // (15% = 45 pages with nothing saved). Dismiss once the reader has moved
+  // a couple of pages away from where the document opened.
+  const startPageRef = useRef<number | null>(null);
   const handleScrollPositionChange = useCallback(
     (position: ReadingPosition) => {
       setCurrentPage(position.offset);
-      onScrollPositionChange(position);
+      if (startPageRef.current === null) {
+        startPageRef.current = position.offset;
+      }
+      if (
+        Math.abs(position.offset - startPageRef.current) >=
+        BANNER_DISMISS_PAGE_DISTANCE
+      ) {
+        onScrollPositionChange(position);
+      }
     },
     [onScrollPositionChange],
   );

@@ -7,6 +7,7 @@ import { Text } from "@/components/ui/Text";
 import { useAssetUrl } from "@/lib/hooks";
 import { BookOpen, X } from "lucide-react-native";
 
+import type { ReadingPosition } from "@karakeep/shared/utils/reading-progress-dom";
 import { useReadingProgress } from "@karakeep/shared-react/hooks/reading-progress";
 import { BookmarkTypes, ZBookmark } from "@karakeep/shared/types/bookmarks";
 
@@ -16,6 +17,10 @@ interface BookmarkAssetViewProps {
 
 /** How long the reading progress bar stays visible after a page change */
 const PROGRESS_BAR_HIDE_DELAY_MS = 2000;
+/** Idle time after the last page change before the position is saved */
+const SAVE_IDLE_DELAY_MS = 3000;
+/** Moving this many pages from where the document opened dismisses the resume banner */
+const BANNER_DISMISS_PAGE_DISTANCE = 2;
 
 /**
  * PDF reading progress is page-based: the saved offset is the current page,
@@ -43,6 +48,7 @@ function PdfAssetView({
     // Page-based: a few pages into a long book is well under 10%
     bannerMinPercent: 0,
     bannerMinOffset: 2,
+    bannerDismissPercent: -1,
   });
 
   // The requested resume page is only handed to the viewer once the document
@@ -57,9 +63,21 @@ function PdfAssetView({
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressBarVisible, setProgressBarVisible] = useState(false);
   const hideBarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Saving on every page flip hammers the server; save after a pause instead,
+  // and flush whatever is pending when the view goes away.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestPositionRef = useRef<ReadingPosition | null>(null);
+  const onSavePositionRef = useRef(onSavePosition);
+  onSavePositionRef.current = onSavePosition;
+  const startPageRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {
       if (hideBarTimer.current) clearTimeout(hideBarTimer.current);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (latestPositionRef.current) {
+        onSavePositionRef.current(latestPositionRef.current);
+      }
     };
   }, []);
 
@@ -71,7 +89,7 @@ function PdfAssetView({
 
   const handlePageChanged = useCallback(
     (page: number, numberOfPages: number) => {
-      const position = {
+      const position: ReadingPosition = {
         offset: page,
         anchor: "",
         percent:
@@ -86,10 +104,24 @@ function PdfAssetView({
         () => setProgressBarVisible(false),
         PROGRESS_BAR_HIDE_DELAY_MS,
       );
-      onScrollPositionChange(position);
-      onSavePosition(position);
+
+      if (startPageRef.current === null) {
+        startPageRef.current = page;
+      }
+      if (
+        Math.abs(page - startPageRef.current) >= BANNER_DISMISS_PAGE_DISTANCE
+      ) {
+        onScrollPositionChange(position);
+      }
+
+      latestPositionRef.current = position;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        onSavePositionRef.current(position);
+      }, SAVE_IDLE_DELAY_MS);
     },
-    [onSavePosition, onScrollPositionChange],
+    [onScrollPositionChange],
   );
 
   return (

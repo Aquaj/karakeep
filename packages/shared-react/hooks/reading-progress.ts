@@ -11,6 +11,12 @@ interface UseReadingProgressOptions {
   bannerMinPercent?: number;
   /** Minimum saved offset before the banner shows (default 1, i.e. any progress) */
   bannerMinOffset?: number;
+  /**
+   * Scrolling past this percentage dismisses the banner and re-enables saving
+   * (default 15). Pass -1 to dismiss on the first reported position change;
+   * callers can then gate what they report.
+   */
+  bannerDismissPercent?: number;
 }
 
 /**
@@ -29,6 +35,7 @@ export function useReadingProgress({
   bookmarkId,
   bannerMinPercent = 10,
   bannerMinOffset = 1,
+  bannerDismissPercent = 15,
 }: UseReadingProgressOptions) {
   const api = useTRPC();
   const queryClient = useQueryClient();
@@ -123,11 +130,14 @@ export function useReadingProgress({
   );
 
   // Responsive — called on every throttled scroll for banner dismissal
-  const onScrollPositionChange = useCallback((position: ReadingPosition) => {
-    if (bannerVisibleRef.current && position.percent > 15) {
-      setBannerDismissed(true);
-    }
-  }, []);
+  const onScrollPositionChange = useCallback(
+    (position: ReadingPosition) => {
+      if (bannerVisibleRef.current && position.percent > bannerDismissPercent) {
+        setBannerDismissed(true);
+      }
+    },
+    [bannerDismissPercent],
+  );
 
   const onContinue = useCallback(() => {
     setRestoreRequested(true);
