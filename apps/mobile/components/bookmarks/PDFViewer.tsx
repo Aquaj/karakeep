@@ -45,11 +45,13 @@ export function PDFViewer({
     isLoading,
     error: downloadError,
   } = useQuery({
-    queryKey: ["pdf", source],
+    // "v2": earlier builds persisted paths to temp files that no longer exist
+    // (the query cache survives app updates for a week).
+    queryKey: ["pdf", "v2", source],
     queryFn: async () => {
       // One stable file per document in the OS-purgeable cache dir. Reopening
-      // a PDF reuses it instead of re-downloading (and React Query's cached
-      // path always points at a file that exists).
+      // a PDF reuses it instead of re-downloading. The query is always stale
+      // so a persisted path gets re-validated against the filesystem.
       const path = `${PDF_CACHE_DIR}/${hashString(source)}.pdf`;
       const fs = ReactNativeBlobUtil.fs;
       if (await fs.exists(path)) {
@@ -75,7 +77,7 @@ export function PDFViewer({
       }
       return response.path();
     },
-    staleTime: Infinity,
+    staleTime: 0,
     enabled: !!source,
   });
 
