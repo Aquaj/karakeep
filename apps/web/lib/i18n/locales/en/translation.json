@@ -1000,7 +1000,10 @@
       "zoom_in": "Zoom in",
       "zoom_out": "Zoom out",
       "open_in_browser": "Open in browser",
-      "load_error": "This PDF could not be loaded. Try opening it in your browser instead."
+      "load_error": "This PDF could not be loaded. Try opening it in your browser instead.",
+      "use_page_as_preview": "Use as preview",
+      "use_page_as_preview_hint": "Use the current page as the bookmark's preview image",
+      "preview_updated": "Preview image updated!"
     },
     "tabs": {
       "content": "Content",

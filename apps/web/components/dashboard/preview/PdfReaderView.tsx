@@ -4,13 +4,15 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FullPageSpinner } from "@/components/ui/full-page-spinner";
+import { toast } from "@/components/ui/sonner";
 import { useTranslation } from "@/lib/i18n/client";
-import { ExternalLink, FileX, ZoomIn, ZoomOut } from "lucide-react";
+import { ExternalLink, FileX, ImageIcon, ZoomIn, ZoomOut } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
 
 import type { ReadingPositionStrategy } from "@karakeep/shared-react/components/ScrollProgressTracker";
 import type { ReadingPosition } from "@karakeep/shared/utils/reading-progress-dom";
 import ScrollProgressTracker from "@karakeep/shared-react/components/ScrollProgressTracker";
+import { useSetPdfPreviewFromPage } from "@karakeep/shared-react/hooks/assets";
 import { useReadingProgress } from "@karakeep/shared-react/hooks/reading-progress";
 import { getAssetUrl } from "@karakeep/shared/utils/assetUtils";
 import { findScrollableParent } from "@karakeep/shared/utils/reading-progress-dom";
@@ -144,10 +146,12 @@ function PdfPagePlaceholder({
 export default function PdfReaderView({
   bookmarkId,
   assetId,
+  readOnly = false,
   toolbarLeading,
 }: {
   bookmarkId: string;
   assetId: string;
+  readOnly?: boolean;
   /** Rendered at the start of the toolbar row (e.g. the section selector) */
   toolbarLeading?: React.ReactNode;
 }) {
@@ -221,6 +225,13 @@ export default function PdfReaderView({
     },
     [onScrollPositionChange],
   );
+
+  const { mutate: setPdfPreview, isPending: isSettingPreview } =
+    useSetPdfPreviewFromPage({
+      onSuccess: () =>
+        toast({ description: t("preview.pdf.preview_updated") }),
+      onError: (e) => toast({ description: e.message, variant: "destructive" }),
+    });
 
   const onDocumentLoadSuccess = useCallback((pdf: PDFDocumentProxy) => {
     setLoadError(false);
@@ -387,6 +398,23 @@ export default function PdfReaderView({
               total: numPages,
             })}
           </span>
+        )}
+        {!readOnly && numPages > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isSettingPreview}
+            onClick={() =>
+              setPdfPreview({
+                bookmarkId,
+                pageNumber: Math.min(currentPage, numPages),
+              })
+            }
+            title={t("preview.pdf.use_page_as_preview_hint")}
+          >
+            <ImageIcon className="mr-1 size-4" />
+            {t("preview.pdf.use_page_as_preview")}
+          </Button>
         )}
         <Button variant="ghost" size="sm" asChild>
           <a href={assetUrl} target="_blank" rel="noreferrer">
