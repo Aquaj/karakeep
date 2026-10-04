@@ -9,9 +9,17 @@ import { useColorScheme } from "nativewind";
 interface PDFViewerProps {
   source: string;
   headers?: Record<string, string>;
+  /** 1-based page to jump to; changing it scrolls the viewer */
+  page?: number;
+  onPageChanged?: (page: number, numberOfPages: number) => void;
 }
 
-export function PDFViewer({ source, headers }: PDFViewerProps) {
+export function PDFViewer({
+  source,
+  headers,
+  page,
+  onPageChanged,
+}: PDFViewerProps) {
   const [pdfRenderError, setPdfRenderError] = useState<string | null>(null);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -103,6 +111,8 @@ export function PDFViewer({ source, headers }: PDFViewerProps) {
         source={{ uri: `file://${localPath}`, cache: true }}
         spacing={16}
         maxScale={3}
+        page={page}
+        onPageChanged={onPageChanged}
         onLoadComplete={() => ({})}
         onError={() => setPdfRenderError("Failed to render PDF")}
         trustAllCerts={false}
