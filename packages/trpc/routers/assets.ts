@@ -69,6 +69,18 @@ export const assetsAppRouter = router({
     .mutation(async ({ input, ctx }) => {
       await Asset.replaceAsset(ctx, input);
     }),
+  setPdfPreviewFromPage: assetsProcedure
+    .input(
+      z.object({
+        bookmarkId: z.string(),
+        pageNumber: z.number().int().min(1),
+      }),
+    )
+    .output(z.void())
+    .use(ensureBookmarkOwnership)
+    .mutation(async ({ input, ctx }) => {
+      await Asset.setPdfPreviewFromPage(ctx, input);
+    }),
   detachAsset: assetsProcedure
     .input(
       z.object({

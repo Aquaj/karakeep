@@ -50,6 +50,31 @@ export function useReplaceBookmarkAsset(
   );
 }
 
+export function useSetPdfPreviewFromPage(
+  opts?: Parameters<
+    TRPCApi["assets"]["setPdfPreviewFromPage"]["mutationOptions"]
+  >[0],
+) {
+  const api = useTRPC();
+  const queryClient = useQueryClient();
+  return useMutation(
+    api.assets.setPdfPreviewFromPage.mutationOptions({
+      ...opts,
+      onSuccess: (res, req, meta, context) => {
+        queryClient.invalidateQueries(api.bookmarks.getBookmarks.pathFilter());
+        queryClient.invalidateQueries(
+          api.bookmarks.searchBookmarks.pathFilter(),
+        );
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
+        );
+        queryClient.invalidateQueries(api.assets.list.pathFilter());
+        return opts?.onSuccess?.(res, req, meta, context);
+      },
+    }),
+  );
+}
+
 export function useDetachBookmarkAsset(
   opts?: Parameters<TRPCApi["assets"]["detachAsset"]["mutationOptions"]>[0],
 ) {
