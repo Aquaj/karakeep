@@ -1,9 +1,17 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { assets } from "@karakeep/db/schema";
-import { deleteAsset } from "@karakeep/shared-server";
+import { assets, AssetTypes, bookmarkAssets } from "@karakeep/db/schema";
+import {
+  createAssetReadStream,
+  deleteAsset,
+  newAssetId,
+  QuotaService,
+  renderPdfPageToPng,
+  saveAsset,
+  StorageQuotaError,
+} from "@karakeep/shared-server";
 import serverConfig from "@karakeep/shared/config";
 import { createSignedToken } from "@karakeep/shared/signedTokens";
 import { zAssetSignedTokenSchema } from "@karakeep/shared/types/assets";
@@ -198,6 +206,110 @@ export class Asset {
     }
     await deleteAsset({ userId: ctx.user.id, assetId: input.assetId }).catch(
       () => ({}),
+    );
+  }
+
+  /**
+   * Renders a page of a PDF bookmark and makes it the bookmark's preview
+   * (its asset screenshot), replacing any existing one.
+   */
+  static async setPdfPreviewFromPage(
+    ctx: AuthedContext,
+    input: {
+      bookmarkId: string;
+      pageNumber: number;
+    },
+  ) {
+    await this.ensureBookmarkOwnership(ctx, input.bookmarkId);
+    const bookmarkAsset = await ctx.db.query.bookmarkAssets.findFirst({
+      where: eq(bookmarkAssets.id, input.bookmarkId),
+    });
+    if (bookmarkAsset?.assetType !== "pdf") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Only PDF bookmarks can use a page as their preview",
+      });
+    }
+
+    let png: Buffer;
+    try {
+      png = await renderPdfPageToPng(
+        await createAssetReadStream({
+          userId: ctx.user.id,
+          assetId: bookmarkAsset.assetId,
+        }),
+        input.pageNumber,
+      );
+    } catch (e) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Failed to render page ${input.pageNumber} of the PDF`,
+        cause: e,
+      });
+    }
+
+    let quotaApproved;
+    try {
+      quotaApproved = await QuotaService.checkStorageQuota(
+        ctx.db,
+        ctx.user.id,
+        png.byteLength,
+      );
+    } catch (e) {
+      if (e instanceof StorageQuotaError) {
+        throw new TRPCError({ code: "FORBIDDEN", message: e.message });
+      }
+      throw e;
+    }
+
+    const assetId = newAssetId();
+    const fileName = `page-${input.pageNumber}.png`;
+    const contentType = "image/png";
+    await saveAsset({
+      userId: ctx.user.id,
+      assetId,
+      asset: png,
+      metadata: { contentType, fileName },
+      quotaApproved,
+    });
+
+    const oldScreenshots = await ctx.db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.bookmarkId, input.bookmarkId),
+          eq(assets.assetType, AssetTypes.ASSET_SCREENSHOT),
+        ),
+      );
+    await ctx.db.transaction((tx) => {
+      if (oldScreenshots.length > 0) {
+        tx.delete(assets)
+          .where(
+            inArray(
+              assets.id,
+              oldScreenshots.map((a) => a.id),
+            ),
+          )
+          .run();
+      }
+      tx.insert(assets)
+        .values({
+          id: assetId,
+          bookmarkId: input.bookmarkId,
+          userId: ctx.user.id,
+          assetType: AssetTypes.ASSET_SCREENSHOT,
+          contentType,
+          size: png.byteLength,
+          fileName,
+        })
+        .run();
+    });
+
+    await Promise.all(
+      oldScreenshots.map((a) =>
+        deleteAsset({ userId: ctx.user.id, assetId: a.id }).catch(() => ({})),
+      ),
     );
   }
 

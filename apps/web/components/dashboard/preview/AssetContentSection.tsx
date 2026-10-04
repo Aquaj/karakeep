@@ -27,7 +27,13 @@ const PdfReaderView = dynamic(() => import("./PdfReaderView"), {
   loading: () => <FullPageSpinner />,
 });
 
-function PDFContentSection({ bookmark }: { bookmark: ZBookmark }) {
+function PDFContentSection({
+  bookmark,
+  readOnly,
+}: {
+  bookmark: ZBookmark;
+  readOnly: boolean;
+}) {
   if (bookmark.content.type != BookmarkTypes.ASSET) {
     throw new Error("Invalid content type");
   }
@@ -93,6 +99,7 @@ function PDFContentSection({ bookmark }: { bookmark: ZBookmark }) {
     <PdfReaderView
       bookmarkId={bookmark.id}
       assetId={bookmark.content.assetId}
+      readOnly={readOnly}
       toolbarLeading={sectionSelect}
     />
   );
@@ -117,7 +124,13 @@ function ImageContentSection({ bookmark }: { bookmark: ZBookmark }) {
   );
 }
 
-export function AssetContentSection({ bookmark }: { bookmark: ZBookmark }) {
+export function AssetContentSection({
+  bookmark,
+  readOnly = false,
+}: {
+  bookmark: ZBookmark;
+  readOnly?: boolean;
+}) {
   if (bookmark.content.type != BookmarkTypes.ASSET) {
     throw new Error("Invalid content type");
   }
@@ -125,7 +138,7 @@ export function AssetContentSection({ bookmark }: { bookmark: ZBookmark }) {
     case "image":
       return <ImageContentSection bookmark={bookmark} />;
     case "pdf":
-      return <PDFContentSection bookmark={bookmark} />;
+      return <PDFContentSection bookmark={bookmark} readOnly={readOnly} />;
     default:
       return <div>Unsupported asset type</div>;
   }

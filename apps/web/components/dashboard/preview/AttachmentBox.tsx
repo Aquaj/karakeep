@@ -100,6 +100,14 @@ export default function AttachmentBox({
 
   const hasAssets = bookmark.assets.length > 0;
 
+  // Links get a banner image; PDFs show their asset screenshot as a preview
+  const previewAssetType =
+    bookmark.content.type == BookmarkTypes.ASSET
+      ? bookmark.content.assetType == "pdf"
+        ? "assetScreenshot"
+        : null
+      : "bannerImage";
+
   return (
     <Collapsible defaultOpen={true}>
       <div className="flex w-full items-center justify-between gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -107,12 +115,16 @@ export default function AttachmentBox({
         <div className="flex items-center gap-1">
           {!readOnly && (
             <>
-              {!bookmark.assets.some(
-                (asset) => asset.assetType == "bannerImage",
-              ) &&
-                bookmark.content.type != BookmarkTypes.ASSET && (
+              {previewAssetType &&
+                !bookmark.assets.some(
+                  (asset) => asset.assetType == previewAssetType,
+                ) && (
                   <FilePickerButton
-                    title="Attach a Banner"
+                    title={
+                      previewAssetType == "bannerImage"
+                        ? "Attach a Banner"
+                        : "Attach a Preview Image"
+                    }
                     loading={isAttaching}
                     accept=".jpg,.JPG,.jpeg,.png,.webp"
                     multiple={false}
@@ -126,7 +138,7 @@ export default function AttachmentBox({
                             bookmarkId: bookmark.id,
                             asset: {
                               id: resp.assetId,
-                              assetType: "bannerImage",
+                              assetType: previewAssetType,
                             },
                           });
                         },
@@ -205,7 +217,7 @@ export default function AttachmentBox({
                   <FilePickerButton
                     title="Replace"
                     loading={isReplacing}
-                    accept=".jgp,.JPG,.jpeg,.png,.webp"
+                    accept=".jpg,.JPG,.jpeg,.png,.webp"
                     multiple={false}
                     variant="none"
                     size="none"
