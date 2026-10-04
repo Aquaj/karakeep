@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, TouchableOpacity, View } from "react-native";
+import { Alert, Pressable, TouchableOpacity, View } from "react-native";
 import ImageView from "react-native-image-viewing";
 import BookmarkAssetImage from "@/components/bookmarks/BookmarkAssetImage";
 import { PDFViewer } from "@/components/bookmarks/PDFViewer";
 import { Text } from "@/components/ui/Text";
+import { useToast } from "@/components/ui/Toast";
 import { useAssetUrl } from "@/lib/hooks";
-import { BookOpen, X } from "lucide-react-native";
+import { BookOpen, Image as ImageIcon, X } from "lucide-react-native";
 
 import type { ReadingPosition } from "@karakeep/shared/utils/reading-progress-dom";
+import { useSetPdfPreviewFromPage } from "@karakeep/shared-react/hooks/assets";
 import { useReadingProgress } from "@karakeep/shared-react/hooks/reading-progress";
+import { useWhoAmI } from "@karakeep/shared-react/hooks/users";
 import { BookmarkTypes, ZBookmark } from "@karakeep/shared/types/bookmarks";
 
 interface BookmarkAssetViewProps {
@@ -29,11 +32,26 @@ const BANNER_DISMISS_PAGE_DISTANCE = 2;
 function PdfAssetView({
   bookmarkId,
   assetId,
+  isOwner,
 }: {
   bookmarkId: string;
   assetId: string;
+  isOwner: boolean;
 }) {
   const assetSource = useAssetUrl(assetId);
+  const { toast } = useToast();
+  const { mutate: setPdfPreview, isPending: isSettingPreview } =
+    useSetPdfPreviewFromPage({
+      onSuccess: () =>
+        toast({ message: "Preview image updated!", showProgress: false }),
+      onError: (e) =>
+        toast({
+          message: e.message,
+          variant: "destructive",
+          showProgress: false,
+        }),
+    });
+  const [currentPage, setCurrentPage] = useState(1);
   const {
     showBanner,
     bannerPercent,
@@ -97,6 +115,7 @@ function PdfAssetView({
             ? Math.min(100, Math.round((page / numberOfPages) * 100))
             : 0,
       };
+      setCurrentPage(page);
       setProgressPercent(position.percent);
       setProgressBarVisible(true);
       if (hideBarTimer.current) clearTimeout(hideBarTimer.current);
@@ -166,6 +185,29 @@ function PdfAssetView({
             />
           </View>
         )}
+        {isOwner && numPages !== null && (
+          <TouchableOpacity
+            disabled={isSettingPreview}
+            onPress={() =>
+              Alert.alert(
+                "Use as preview?",
+                `Make page ${currentPage} this bookmark's preview image?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Use page",
+                    onPress: () =>
+                      setPdfPreview({ bookmarkId, pageNumber: currentPage }),
+                  },
+                ],
+              )
+            }
+            className="absolute right-3 top-3 rounded-full bg-background/80 p-2"
+            style={{ opacity: isSettingPreview ? 0.5 : 1 }}
+          >
+            <ImageIcon size={18} className="text-foreground" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -175,6 +217,7 @@ export default function BookmarkAssetView({
   bookmark,
 }: BookmarkAssetViewProps) {
   const [imageZoom, setImageZoom] = useState(false);
+  const { data: currentUser } = useWhoAmI();
 
   if (bookmark.content.type !== BookmarkTypes.ASSET) {
     throw new Error("Wrong content type rendered");
@@ -188,6 +231,7 @@ export default function BookmarkAssetView({
       <PdfAssetView
         bookmarkId={bookmark.id}
         assetId={bookmark.content.assetId}
+        isOwner={currentUser?.id === bookmark.userId}
       />
     );
   }
