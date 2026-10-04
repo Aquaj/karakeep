@@ -189,16 +189,17 @@ export async function extractAndSavePDFScreenshot(
   jobId: string,
   asset: Buffer,
   bookmark: NonNullable<Awaited<ReturnType<typeof getBookmark>>>,
-  isFixMode: boolean,
 ): Promise<boolean> {
   {
+    // Never stack a second screenshot: the existing one may be a preview the
+    // user picked, and the cards only ever show the first.
     const alreadyHasScreenshot =
       bookmark.assets.find(
         (r) => r.assetType === AssetTypes.ASSET_SCREENSHOT,
       ) !== undefined;
-    if (alreadyHasScreenshot && isFixMode) {
+    if (alreadyHasScreenshot) {
       logger.info(
-        `[assetPreprocessing][${jobId}] Skipping PDF screenshot generation as it's already been generated.`,
+        `[assetPreprocessing][${jobId}] Skipping PDF screenshot generation as the bookmark already has one.`,
       );
       return false;
     }
@@ -444,13 +445,15 @@ async function run(req: DequeuedJob<AssetPreprocessingRequest>) {
       break;
     }
     case "pdf": {
-      const extractedText = await extractAndSavePDFText(
+      // Render the first page before the text extraction: rendering takes about
+      // a second, while pdf2json can take most of the job timeout on large
+      // books and would otherwise leave the bookmark without a preview.
+      const extractedScreenshot = await extractAndSavePDFScreenshot(
         jobId,
         asset,
         bookmark,
-        isFixMode,
       );
-      const extractedScreenshot = await extractAndSavePDFScreenshot(
+      const extractedText = await extractAndSavePDFText(
         jobId,
         asset,
         bookmark,
