@@ -70,8 +70,7 @@ function PdfAssetView({
   });
 
   // The requested resume page is only handed to the viewer once the document
-  // has loaded (and clamped to its page count): jumping earlier crashes the
-  // native Android view.
+  // has loaded, clamped to its page count.
   const [pendingPage, setPendingPage] = useState<number | undefined>(undefined);
   const [numPages, setNumPages] = useState<number | null>(null);
   const targetPage =
