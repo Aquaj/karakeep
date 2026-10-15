@@ -12,6 +12,7 @@ import {
   lt,
   lte,
   or,
+  sql,
   SQL,
 } from "drizzle-orm";
 import invariant from "tiny-invariant";
@@ -46,6 +47,10 @@ import {
   zGetBookmarksRequestSchema,
 } from "@karakeep/shared/types/bookmarks";
 import type {
+  ZBookmarkSortField,
+  ZBookmarksCursor,
+} from "@karakeep/shared/types/bookmarks";
+import type {
   ZBareBookmark,
   ZBookmark,
   ZBookmarkContent,
@@ -53,7 +58,6 @@ import type {
   ZBookmarkReadableContentFormat,
   ZPublicBookmark,
 } from "@karakeep/shared/types/bookmarks";
-import type { ZCursor } from "@karakeep/shared/types/pagination";
 import {
   getBookmarkLinkAssetIdOrUrl,
   getBookmarkTitle,
@@ -153,6 +157,38 @@ export class BareBookmark {
         message: "User is not allowed to access resource",
       });
     }
+  }
+}
+
+/**
+ * SQL for a bookmark's value under a non-default sort, or null for the default
+ * (createdAt). Never NULL, so it compares cleanly in keyset cursors.
+ *
+ * Identifiers are spelled out rather than interpolated as drizzle columns:
+ * drizzle unqualifies column names inside the selection of a single-table
+ * query, which would break the correlation of these subqueries.
+ */
+function bookmarkSortKeyExpression(
+  userId: string,
+  sortBy: ZBookmarkSortField,
+): SQL<string | number> | null {
+  switch (sortBy) {
+    case "createdAt":
+      return null;
+    case "title":
+      // Same precedence as the displayed title, falling back to the URL/text
+      return sql<string>`lower(coalesce(
+        nullif(trim("bookmarks"."title"), ''),
+        (select nullif(trim(bl."title"), '') from "bookmarkLinks" bl where bl."id" = "bookmarks"."id"),
+        (select nullif(trim(ba."fileName"), '') from "bookmarkAssets" ba where ba."id" = "bookmarks"."id"),
+        (select bl."url" from "bookmarkLinks" bl where bl."id" = "bookmarks"."id"),
+        (select substr(trim(bt."text"), 1, 200) from "bookmarkTexts" bt where bt."id" = "bookmarks"."id"),
+        ''
+      ))`;
+    case "readingProgress":
+      return sql<number>`coalesce((select rp."readingProgressPercent" from "userReadingProgress" rp where rp."bookmarkId" = "bookmarks"."id" and rp."userId" = ${userId}), 0)`;
+    case "lastRead":
+      return sql<number>`coalesce((select rp."modifiedAt" from "userReadingProgress" rp where rp."bookmarkId" = "bookmarks"."id" and rp."userId" = ${userId}), 0)`;
   }
 }
 
@@ -433,7 +469,7 @@ export class Bookmark extends BareBookmark {
     input: z.infer<typeof zGetBookmarksRequestSchema> & { ids?: string[] },
   ): Promise<{
     bookmarks: Bookmark[];
-    nextCursor: ZCursor | null;
+    nextCursor: ZBookmarksCursor | null;
   }> {
     if (input.ids && input.ids.length == 0) {
       return { bookmarks: [], nextCursor: null };
@@ -468,28 +504,74 @@ export class Bookmark extends BareBookmark {
       }
     }
 
-    // Build cursor condition for pagination
-    const buildCursorCondition = (
-      createdAtCol: typeof bookmarks.createdAt,
-      idCol: typeof bookmarks.id,
-    ): SQL | undefined => {
-      if (!input.cursor) return undefined;
+    // Sort keys, most significant first; the id is the final tiebreaker. Key
+    // names double as the cursor fields holding their values and as the CTE
+    // columns to re-sort on.
+    const sortOrder = input.sortOrder === "asc" ? "asc" : "desc";
+    const sortKeyExpr = bookmarkSortKeyExpression(
+      ctx.user.id,
+      input.sortBy ?? "createdAt",
+    );
+    // `bind` turns a cursor value into a parameter, through the column's own
+    // encoding where there is one (dates, booleans).
+    const sortKeys: {
+      name: "favourited" | "sortKey" | "createdAt";
+      expr: SQL;
+      dir: "asc" | "desc";
+      bind: (value: unknown) => unknown;
+    }[] = [];
+    if (input.favouritesFirst) {
+      sortKeys.push({
+        name: "favourited",
+        expr: sql`${bookmarks.favourited}`,
+        dir: "desc",
+        bind: (value) => sql.param(value, bookmarks.favourited),
+      });
+    }
+    if (sortKeyExpr) {
+      sortKeys.push({
+        name: "sortKey",
+        expr: sortKeyExpr,
+        dir: sortOrder,
+        bind: (value) => value,
+      });
+    }
+    // Under another sort, ties fall back to newest first
+    sortKeys.push({
+      name: "createdAt",
+      expr: sql`${bookmarks.createdAt}`,
+      dir: sortKeyExpr ? "desc" : sortOrder,
+      bind: (value) => sql.param(value, bookmarks.createdAt),
+    });
 
-      if (input.sortOrder === "asc") {
-        return or(
-          gt(createdAtCol, input.cursor.createdAt),
-          and(
-            eq(createdAtCol, input.cursor.createdAt),
-            lte(idCol, input.cursor.id),
-          ),
-        );
+    // Build cursor condition for pagination: rows past the cursor on some key
+    // and level with it on every key before. A full tie falls back to the id,
+    // inclusively, since the cursor is the first row of the next page.
+    const buildCursorCondition = (): SQL | undefined => {
+      const cursor = input.cursor;
+      if (!cursor) return undefined;
+
+      const rawValues = sortKeys.map((key) => cursor[key.name]);
+      if (rawValues.some((value) => value === undefined || value === null)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The cursor doesn't match the requested sort",
+        });
       }
+      const values = sortKeys.map((key, i) => key.bind(rawValues[i]));
+      const levelUpTo = (count: number) =>
+        sortKeys.slice(0, count).map((key, i) => eq(key.expr, values[i]));
+
       return or(
-        lt(createdAtCol, input.cursor.createdAt),
-        and(
-          eq(createdAtCol, input.cursor.createdAt),
-          lte(idCol, input.cursor.id),
+        ...sortKeys.map((key, i) =>
+          and(
+            ...levelUpTo(i),
+            key.dir === "asc"
+              ? gt(key.expr, values[i])
+              : lt(key.expr, values[i]),
+          ),
         ),
+        and(...levelUpTo(sortKeys.length), lte(bookmarks.id, cursor.id)),
       );
     };
 
@@ -505,13 +587,17 @@ export class Bookmark extends BareBookmark {
     ];
 
     // Build ORDER BY clause
-    const buildOrderBy = () =>
-      [
-        input.sortOrder === "asc"
-          ? asc(bookmarks.createdAt)
-          : desc(bookmarks.createdAt),
-        desc(bookmarks.id),
-      ] as const;
+    const buildOrderBy = () => [
+      ...sortKeys.map((key) =>
+        key.dir === "asc" ? asc(key.expr) : desc(key.expr),
+      ),
+      desc(bookmarks.id),
+    ];
+
+    const selection = {
+      ...getTableColumns(bookmarks),
+      sortKey: (sortKeyExpr ?? sql<null>`null`).as("sortKey"),
+    };
 
     // Choose query strategy based on filters
     // Strategy: Use the most selective filter as the driving table
@@ -522,14 +608,14 @@ export class Bookmark extends BareBookmark {
       // Access control is already verified by List.fromId() called above
       sq = ctx.db.$with("bookmarksSq").as(
         ctx.db
-          .select(getTableColumns(bookmarks))
+          .select(selection)
           .from(bookmarksInLists)
           .innerJoin(bookmarks, eq(bookmarks.id, bookmarksInLists.bookmarkId))
           .where(
             and(
               eq(bookmarksInLists.listId, input.listId),
               ...buildCommonFilters(),
-              buildCursorCondition(bookmarks.createdAt, bookmarks.id),
+              buildCursorCondition(),
             ),
           )
           .limit(input.limit + 1)
@@ -539,7 +625,7 @@ export class Bookmark extends BareBookmark {
       // PATH: Tag filter - start from tagsOnBookmarks (more selective)
       sq = ctx.db.$with("bookmarksSq").as(
         ctx.db
-          .select(getTableColumns(bookmarks))
+          .select(selection)
           .from(tagsOnBookmarks)
           .innerJoin(bookmarks, eq(bookmarks.id, tagsOnBookmarks.bookmarkId))
           .where(
@@ -547,7 +633,7 @@ export class Bookmark extends BareBookmark {
               eq(tagsOnBookmarks.tagId, input.tagId),
               eq(bookmarks.userId, ctx.user.id), // Access control
               ...buildCommonFilters(),
-              buildCursorCondition(bookmarks.createdAt, bookmarks.id),
+              buildCursorCondition(),
             ),
           )
           .limit(input.limit + 1)
@@ -557,7 +643,7 @@ export class Bookmark extends BareBookmark {
       // PATH: RSS feed filter - start from rssFeedImportsTable (more selective)
       sq = ctx.db.$with("bookmarksSq").as(
         ctx.db
-          .select(getTableColumns(bookmarks))
+          .select(selection)
           .from(rssFeedImportsTable)
           .innerJoin(
             bookmarks,
@@ -568,7 +654,7 @@ export class Bookmark extends BareBookmark {
               eq(rssFeedImportsTable.rssFeedId, input.rssFeedId),
               eq(bookmarks.userId, ctx.user.id), // Access control
               ...buildCommonFilters(),
-              buildCursorCondition(bookmarks.createdAt, bookmarks.id),
+              buildCursorCondition(),
             ),
           )
           .limit(input.limit + 1)
@@ -579,13 +665,13 @@ export class Bookmark extends BareBookmark {
       // Uses composite index: bookmarks_userId_lastSavedAt_id_idx (or archived/favourited variants)
       sq = ctx.db.$with("bookmarksSq").as(
         ctx.db
-          .select()
+          .select(selection)
           .from(bookmarks)
           .where(
             and(
               eq(bookmarks.userId, ctx.user.id),
               ...buildCommonFilters(),
-              buildCursorCondition(bookmarks.createdAt, bookmarks.id),
+              buildCursorCondition(),
             ),
           )
           .limit(input.limit + 1)
@@ -605,7 +691,17 @@ export class Bookmark extends BareBookmark {
       .leftJoin(bookmarkTexts, eq(bookmarkTexts.id, sq.id))
       .leftJoin(bookmarkAssets, eq(bookmarkAssets.id, sq.id))
       .leftJoin(assets, eq(assets.bookmarkId, sq.id))
-      .orderBy(desc(sq.createdAt), desc(sq.id));
+      .orderBy(
+        ...sortKeys.map((key) =>
+          key.dir === "asc" ? asc(sq[key.name]) : desc(sq[key.name]),
+        ),
+        desc(sq.id),
+      );
+
+    // Rows arrive in sort order; remember it, along with each sort key value
+    // (needed for the next cursor).
+    const rank = new Map<string, number>();
+    const sortKeyById = new Map<string, string | number | null>();
 
     const bookmarksRes = results.reduce<Record<string, ZBookmark>>(
       (acc, row) => {
@@ -665,8 +761,11 @@ export class Bookmark extends BareBookmark {
               type: BookmarkTypes.UNKNOWN,
             };
           }
+          const { sortKey, ...bookmarkRow } = row.bookmarksSq;
+          rank.set(bookmarkId, rank.size);
+          sortKeyById.set(bookmarkId, sortKey);
           acc[bookmarkId] = {
-            ...row.bookmarksSq,
+            ...bookmarkRow,
             firstCreatedAt: row.bookmarksSq.dbCreatedAt,
             content,
             tags: [],
@@ -774,15 +873,7 @@ export class Bookmark extends BareBookmark {
       );
     }
 
-    bookmarksArr.sort((a, b) => {
-      if (a.createdAt != b.createdAt) {
-        return input.sortOrder === "asc"
-          ? a.createdAt.getTime() - b.createdAt.getTime()
-          : b.createdAt.getTime() - a.createdAt.getTime();
-      } else {
-        return b.id.localeCompare(a.id);
-      }
-    });
+    bookmarksArr.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
 
     bookmarksArr.forEach((b) => {
       b.tags.sort((a, b) =>
@@ -790,12 +881,14 @@ export class Bookmark extends BareBookmark {
       );
     });
 
-    let nextCursor = null;
+    let nextCursor: ZBookmarksCursor | null = null;
     if (bookmarksArr.length > input.limit) {
       const nextItem = bookmarksArr.pop()!;
       nextCursor = {
         id: nextItem.id,
         createdAt: nextItem.createdAt,
+        ...(input.favouritesFirst ? { favourited: nextItem.favourited } : {}),
+        ...(sortKeyExpr ? { sortKey: sortKeyById.get(nextItem.id) } : {}),
       };
     }
 

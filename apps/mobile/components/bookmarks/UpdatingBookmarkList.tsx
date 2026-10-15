@@ -13,7 +13,10 @@ export default function UpdatingBookmarkList({
   query,
   header,
 }: {
-  query: Omit<ZGetBookmarksRequest, "sortOrder" | "includeContent">; // Sort order is handled by mobile settings
+  query: Omit<
+    ZGetBookmarksRequest,
+    "sortOrder" | "sortBy" | "favouritesFirst" | "includeContent"
+  >; // Sorting is handled by mobile settings
   header?: React.ReactElement;
 }) {
   const api = useTRPC();
@@ -35,6 +38,8 @@ export default function UpdatingBookmarkList({
       {
         ...query,
         sortOrder: settings.bookmarkSortOrder,
+        sortBy: settings.bookmarkSortBy,
+        favouritesFirst: settings.bookmarkFavouritesFirst,
         useCursorV2: true,
         includeContent: false,
       },

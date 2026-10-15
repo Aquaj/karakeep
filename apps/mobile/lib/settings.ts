@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import { z } from "zod";
 import { create } from "zustand";
 
+import { zBookmarkSortField } from "@karakeep/shared/types/bookmarks";
 import { zReaderFontFamilySchema } from "@karakeep/shared/types/users";
 
 const SETTING_NAME = "settings";
@@ -46,6 +47,8 @@ const zSettingsSchema = z.object({
     .default("reader"),
   bookmarkLayout: z.enum(["card", "list"]).optional().default("list"),
   bookmarkSortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
+  bookmarkSortBy: zBookmarkSortField.optional().default("createdAt"),
+  bookmarkFavouritesFirst: z.boolean().optional().default(false),
   showNotes: z.boolean().optional().default(false),
   keepScreenOnWhileReading: z.boolean().optional().default(false),
   customHeaders: z.record(z.string(), z.string()).optional().default({}),
@@ -82,6 +85,8 @@ const useSettings = create<AppSettingsState>((set, get) => ({
       defaultBookmarkView: "reader",
       bookmarkLayout: "list",
       bookmarkSortOrder: "desc",
+      bookmarkSortBy: "createdAt",
+      bookmarkFavouritesFirst: false,
       showNotes: false,
       keepScreenOnWhileReading: false,
       customHeaders: {},
