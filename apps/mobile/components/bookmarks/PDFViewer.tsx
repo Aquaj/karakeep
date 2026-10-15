@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import ReactNativeBlobUtil from "react-native-blob-util";
-import Pdf from "react-native-pdf";
+import Pdf, { type PdfRef } from "react-native-pdf";
 import { Text } from "@/components/ui/Text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useColorScheme } from "nativewind";
@@ -120,7 +120,7 @@ export function PDFViewer({
   // Jumps go through the imperative command, never the `page` prop: on Android
   // every prop update reloads the whole document, and tearing it down while
   // pages are still rendering crashes natively.
-  const pdfRef = useRef<Pdf>(null);
+  const pdfRef = useRef<PdfRef>(null);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     if (loaded && page !== undefined) {
