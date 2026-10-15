@@ -313,7 +313,7 @@ export function TagsEditor({
           <PopoverTrigger asChild>
             <div
               className={cn(
-                "relative flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                "relative flex min-h-10 w-full flex-wrap items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
                 isDisabled && "cursor-not-allowed opacity-50",
               )}
             >
@@ -337,7 +337,7 @@ export function TagsEditor({
                         {!isDisabled && (
                           <button
                             type="button"
-                            className="rounded-full outline-none ring-offset-background focus:ring-1 focus:ring-ring focus:ring-offset-2"
+                            className="rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                             onClick={(e) => {
                               e.stopPropagation();
                               onChange({
@@ -388,7 +388,7 @@ export function TagsEditor({
                         variant="ghost"
                         size="sm"
                         onClick={createTag}
-                        className="h-auto p-1"
+                        className="h-auto p-1 has-[>svg]:px-1"
                       >
                         <Plus className="h-4 w-4" />
                       </Button>

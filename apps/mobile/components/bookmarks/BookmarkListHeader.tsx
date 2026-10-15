@@ -107,19 +107,17 @@ function useBookmarkListLayoutMenu(): {
       image: Platform.select({ ios: "arrow.up.arrow.down" }),
       imageColor: Platform.select({ ios: menuIconColor }),
       subactions: [
-        ...SORT_OPTIONS.map(
-          (option): MenuAction => ({
-            id: sortActionId(option),
-            title: option.title,
-            state:
-              settings.bookmarkSortBy === option.sortBy &&
-              settings.bookmarkSortOrder === option.sortOrder
-                ? "on"
-                : "off",
-            image: Platform.select({ ios: option.iosImage }),
-            imageColor: Platform.select({ ios: menuIconColor }),
-          }),
-        ),
+        ...SORT_OPTIONS.map((option): MenuAction => ({
+          id: sortActionId(option),
+          title: option.title,
+          state:
+            settings.bookmarkSortBy === option.sortBy &&
+            settings.bookmarkSortOrder === option.sortOrder
+              ? "on"
+              : "off",
+          image: Platform.select({ ios: option.iosImage }),
+          imageColor: Platform.select({ ios: menuIconColor }),
+        })),
         {
           id: "sort_favourites_first",
           title: "Favorites First",
