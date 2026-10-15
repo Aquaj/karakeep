@@ -5,6 +5,61 @@ import { MoreHorizontal } from "lucide-react-native";
 import useAppSettings from "@/lib/settings";
 import { useMenuIconColors } from "@/lib/useMenuIconColors";
 
+import type { ZBookmarkSortField } from "@karakeep/shared/types/bookmarks";
+
+const SORT_OPTIONS: {
+  sortBy: ZBookmarkSortField;
+  sortOrder: "asc" | "desc";
+  title: string;
+  iosImage: string;
+}[] = [
+  {
+    sortBy: "createdAt",
+    sortOrder: "desc",
+    title: "Newest First",
+    iosImage: "arrow.down",
+  },
+  {
+    sortBy: "createdAt",
+    sortOrder: "asc",
+    title: "Oldest First",
+    iosImage: "arrow.up",
+  },
+  {
+    sortBy: "title",
+    sortOrder: "asc",
+    title: "Title A–Z",
+    iosImage: "textformat",
+  },
+  {
+    sortBy: "title",
+    sortOrder: "desc",
+    title: "Title Z–A",
+    iosImage: "textformat",
+  },
+  {
+    sortBy: "lastRead",
+    sortOrder: "desc",
+    title: "Recently Read",
+    iosImage: "clock",
+  },
+  {
+    sortBy: "readingProgress",
+    sortOrder: "desc",
+    title: "Most Read",
+    iosImage: "book",
+  },
+  {
+    sortBy: "readingProgress",
+    sortOrder: "asc",
+    title: "Least Read",
+    iosImage: "book.closed",
+  },
+];
+
+const sortActionId = (option: { sortBy: string; sortOrder: string }) =>
+  `sort:${option.sortBy}:${option.sortOrder}`;
+
 function useBookmarkListLayoutMenu(): {
   layoutActions: MenuAction[];
   handleLayoutAction: (event: string) => boolean;
@@ -52,18 +107,24 @@ function useBookmarkListLayoutMenu(): {
       image: Platform.select({ ios: "arrow.up.arrow.down" }),
       imageColor: Platform.select({ ios: menuIconColor }),
       subactions: [
+        ...SORT_OPTIONS.map(
+          (option): MenuAction => ({
+            id: sortActionId(option),
+            title: option.title,
+            state:
+              settings.bookmarkSortBy === option.sortBy &&
+              settings.bookmarkSortOrder === option.sortOrder
+                ? "on"
+                : "off",
+            image: Platform.select({ ios: option.iosImage }),
+            imageColor: Platform.select({ ios: menuIconColor }),
+          }),
+        ),
         {
-          id: "sort_desc",
-          title: "Newest First",
-          state: settings.bookmarkSortOrder === "desc" ? "on" : "off",
-          image: Platform.select({ ios: "arrow.down" }),
-          imageColor: Platform.select({ ios: menuIconColor }),
-        },
-        {
-          id: "sort_asc",
-          title: "Oldest First",
-          state: settings.bookmarkSortOrder === "asc" ? "on" : "off",
-          image: Platform.select({ ios: "arrow.up" }),
+          id: "sort_favourites_first",
+          title: "Favorites First",
+          state: settings.bookmarkFavouritesFirst ? "on" : "off",
+          image: Platform.select({ ios: "star" }),
           imageColor: Platform.select({ ios: menuIconColor }),
         },
       ],
@@ -87,10 +148,22 @@ function useBookmarkListLayoutMenu(): {
       return true;
     }
 
-    if (event === "sort_desc" || event === "sort_asc") {
+    const sortOption = SORT_OPTIONS.find(
+      (option) => sortActionId(option) === event,
+    );
+    if (sortOption) {
       setSettings({
         ...settings,
-        bookmarkSortOrder: event === "sort_desc" ? "desc" : "asc",
+        bookmarkSortBy: sortOption.sortBy,
+        bookmarkSortOrder: sortOption.sortOrder,
+      });
+      return true;
+    }
+
+    if (event === "sort_favourites_first") {
+      setSettings({
+        ...settings,
+        bookmarkFavouritesFirst: !settings.bookmarkFavouritesFirst,
       });
       return true;
     }
