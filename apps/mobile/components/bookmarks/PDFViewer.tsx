@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import ReactNativeBlobUtil from "react-native-blob-util";
-import Pdf, { type PdfRef } from "react-native-pdf";
+import type { PdfRef } from "react-native-pdf";
+import Pdf from "react-native-pdf";
 import { Text } from "@/components/ui/Text";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useColorScheme } from "nativewind";
