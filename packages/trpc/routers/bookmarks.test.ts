@@ -6,8 +6,10 @@ import {
   AssetTypes,
   bookmarkLinks,
   bookmarks,
+  bookmarkTexts,
   rssFeedImportsTable,
   tagsOnBookmarks,
+  userReadingProgress,
   users,
 } from "@karakeep/db/schema";
 import * as sharedServer from "@karakeep/shared-server";
@@ -1055,6 +1057,98 @@ describe("Bookmark Routes", () => {
     await validateWithLimit(3);
     await validateWithLimit(10);
     await validateWithLimit(100);
+  });
+
+  test<CustomTestContext>("sort orders paginate in order", async ({
+    apiCallers,
+    db,
+  }) => {
+    const user = await apiCallers[0].users.whoami();
+    const fixtures = [
+      { title: "banana", favourited: false, progress: [50, 300] },
+      { title: "Apple", favourited: true, progress: null },
+      {
+        title: null,
+        text: "cherry pie",
+        favourited: false,
+        progress: [100, 100],
+      },
+      { title: "apple", favourited: false, progress: [50, 200] },
+      { title: "Zucchini", favourited: true, progress: [10, 400] },
+    ] as const;
+    // Newest first: b0 is the most recent
+    const inserted = await db
+      .insert(bookmarks)
+      .values(
+        fixtures.map((f, i) => ({
+          userId: user.id,
+          type: BookmarkTypes.TEXT as const,
+          title: f.title,
+          favourited: f.favourited,
+          createdAt: new Date((5 - i) * 1_000_000),
+        })),
+      )
+      .returning();
+    const ids = fixtures.map(
+      (f) => inserted.find((b) => b.title === f.title)!.id,
+    );
+    await db.insert(bookmarkTexts).values(
+      fixtures.map((f, i) => ({
+        id: ids[i],
+        text: "text" in f ? f.text : "",
+      })),
+    );
+    await db.insert(userReadingProgress).values(
+      fixtures.flatMap((f, i) =>
+        f.progress
+          ? [
+              {
+                bookmarkId: ids[i],
+                userId: user.id,
+                readingProgressOffset: 1,
+                readingProgressPercent: f.progress[0],
+                modifiedAt: new Date(f.progress[1] * 1000),
+              },
+            ]
+          : [],
+      ),
+    );
+
+    const [b0, b1, b2, b3, b4] = ids;
+    const cases = [
+      // Equal keys fall back to newest first
+      [{ sortBy: "title", sortOrder: "asc" }, [b1, b3, b0, b2, b4]],
+      [{ sortBy: "title", sortOrder: "desc" }, [b4, b2, b0, b1, b3]],
+      [{ sortBy: "readingProgress", sortOrder: "desc" }, [b2, b0, b3, b4, b1]],
+      [{ sortBy: "readingProgress", sortOrder: "asc" }, [b1, b4, b0, b3, b2]],
+      [{ sortBy: "lastRead", sortOrder: "desc" }, [b4, b0, b3, b2, b1]],
+      [{ favouritesFirst: true }, [b1, b4, b0, b2, b3]],
+      [
+        { favouritesFirst: true, sortBy: "title", sortOrder: "asc" },
+        [b1, b4, b3, b0, b2],
+      ],
+    ] as const;
+
+    for (const [sort, expected] of cases) {
+      for (const limit of [1, 2, 3, 10]) {
+        const results: string[] = [];
+        let cursor = undefined;
+        let i = 0;
+        do {
+          const res = await apiCallers[0].bookmarks.getBookmarks({
+            ...sort,
+            limit,
+            cursor,
+          });
+          results.push(...res.bookmarks.map((b) => b.id));
+          cursor = res.nextCursor;
+          i++;
+        } while (cursor && i < 20);
+        expect(results, `${JSON.stringify(sort)} limit ${limit}`).toEqual(
+          expected,
+        );
+      }
+    }
   });
 
   test<CustomTestContext>("getBookmark", async ({ apiCallers }) => {

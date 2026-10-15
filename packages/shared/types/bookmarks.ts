@@ -284,6 +284,23 @@ export type ZNewBookmarkRequest = z.infer<typeof zNewBookmarkRequestSchema>;
 export const DEFAULT_NUM_BOOKMARKS_PER_PAGE = 20;
 export const MAX_NUM_BOOKMARKS_PER_PAGE = 100;
 
+/** What the bookmark list is ordered by; `sortOrder` gives the direction */
+export const zBookmarkSortField = z.enum([
+  "createdAt",
+  "title",
+  "readingProgress",
+  "lastRead",
+]);
+export type ZBookmarkSortField = z.infer<typeof zBookmarkSortField>;
+
+// Keyset cursor for getBookmarks: the base cursor plus the values of whichever
+// extra sort keys the request used.
+export const zBookmarksCursor = zCursorV2.extend({
+  sortKey: z.union([z.string(), z.number()]).nullish(),
+  favourited: z.boolean().optional(),
+});
+export type ZBookmarksCursor = z.infer<typeof zBookmarksCursor>;
+
 export const zGetBookmarksRequestSchema = z.object({
   archived: z.boolean().optional(),
   favourited: z.boolean().optional(),
@@ -291,19 +308,23 @@ export const zGetBookmarksRequestSchema = z.object({
   listId: z.string().optional(),
   rssFeedId: z.string().optional(),
   limit: z.number().int().min(1).max(MAX_NUM_BOOKMARKS_PER_PAGE).optional(),
-  cursor: zCursorV2.nullish(),
+  cursor: zBookmarksCursor.nullish(),
   // TODO: This was done for backward comptability. At this point, all clients should be settings this to true.
   // The value is currently not being used, but keeping it so that client can still set it to true for older
   // servers.
   useCursorV2: z.boolean().optional(),
   sortOrder: zSortOrder.exclude(["relevance"]).optional().default("desc"),
+  // Defaults to "createdAt"
+  sortBy: zBookmarkSortField.optional(),
+  /** Favourited bookmarks come first, each group in the requested order */
+  favouritesFirst: z.boolean().optional(),
   includeContent: z.boolean().optional().default(false),
 });
 export type ZGetBookmarksRequest = z.infer<typeof zGetBookmarksRequestSchema>;
 
 export const zGetBookmarksResponseSchema = z.object({
   bookmarks: z.array(zBookmarkSchema),
-  nextCursor: zCursorV2.nullable(),
+  nextCursor: zBookmarksCursor.nullable(),
 });
 export type ZGetBookmarksResponse = z.infer<typeof zGetBookmarksResponseSchema>;
 
