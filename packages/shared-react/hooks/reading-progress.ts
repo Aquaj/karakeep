@@ -40,9 +40,11 @@ export function useReadingProgress({
   const api = useTRPC();
   const queryClient = useQueryClient();
 
-  const { data: progressData } = useQuery(
-    api.bookmarks.getReadingProgress.queryOptions({ bookmarkId }),
-  );
+  const {
+    data: progressData,
+    isStale,
+    isFetching,
+  } = useQuery(api.bookmarks.getReadingProgress.queryOptions({ bookmarkId }));
 
   const readingProgressOffset = progressData?.readingProgressOffset;
   const readingProgressAnchor = progressData?.readingProgressAnchor;
@@ -63,8 +65,16 @@ export function useReadingProgress({
     lastSavedOffset.current = null;
   }
 
-  // Only capture once data has loaded (offset transitions from undefined to a value)
-  if (!initialProgressRef.current && readingProgressOffset !== undefined) {
+  // Only capture once data has loaded (offset transitions from undefined to a
+  // value). Stale cached data is about to be replaced by the refetch already in
+  // flight, so wait for it: freezing it would resume at an outdated position
+  // and re-save over newer progress. If the refetch fails, the cache is all we
+  // have.
+  if (
+    !initialProgressRef.current &&
+    readingProgressOffset !== undefined &&
+    (!isStale || !isFetching)
+  ) {
     initialProgressRef.current = {
       offset: readingProgressOffset ?? null,
       anchor: readingProgressAnchor ?? null,
@@ -102,10 +112,32 @@ export function useReadingProgress({
     setRestoreRequested(false);
   }, [bookmarkId]);
 
-  // Save mutation
+  // Save mutation. Saves often fire on unmount, after which invalidating the
+  // query only marks it stale; reopening the bookmark would then read the old
+  // position from cache. Writing the new position into the cache up front keeps
+  // the next open current even while the request is still in flight.
   const { mutate: updateProgress } = useMutation(
     api.bookmarks.updateReadingProgress.mutationOptions({
-      onSuccess: () => {
+      // Serialize saves per bookmark so an older position can't land last
+      scope: { id: `reading-progress:${bookmarkId}` },
+      onMutate: async (input) => {
+        const queryKey = api.bookmarks.getReadingProgress.queryKey({
+          bookmarkId: input.bookmarkId,
+        });
+        await queryClient.cancelQueries({ queryKey });
+        queryClient.setQueryData(queryKey, {
+          readingProgressOffset: input.readingProgressOffset,
+          readingProgressAnchor: input.readingProgressAnchor ?? null,
+          readingProgressPercent: input.readingProgressPercent ?? null,
+        });
+      },
+      onError: (_error, input) => {
+        // Let the same position be retried instead of being deduplicated away
+        if (lastSavedOffset.current === input.readingProgressOffset) {
+          lastSavedOffset.current = null;
+        }
+      },
+      onSettled: () => {
         queryClient.invalidateQueries(
           api.bookmarks.getReadingProgress.pathFilter(),
         );
