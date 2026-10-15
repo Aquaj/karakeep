@@ -23,6 +23,10 @@ allowBuilds:
   protobufjs: false
 
 patchedDependencies:
+  # Clear a job's idempotency key once it starts running, so the key only
+  # dedupes queued jobs (as the Restate queue does). Otherwise a search reindex
+  # requested while one is running is dropped and the index goes stale.
+  liteque@0.10.0: patches/liteque@0.10.0.patch
   react-tweet@3.2.2: "patches/react-tweet@3.2.2.patch"
   xcode@3.0.1: "patches/xcode@3.0.1.patch"
   # Swift 6.2 / Xcode 26 rejects `weak let`; rewrite to `nonisolated(unsafe) weak var`.

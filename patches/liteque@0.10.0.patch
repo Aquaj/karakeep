@@ -1,0 +1,28 @@
+diff --git a/dist/index.js b/dist/index.js
+index e33722d..7317ad8 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -127,6 +127,9 @@ var SqliteQueue = class {
+ 			}
+ 			const result = txn.update(tasksTable).set({
+ 				status: "running",
++				// Dedupe only while queued: a job enqueued after this one has
++				// started must still run, or changes made meanwhile are lost.
++				idempotencyKey: null,
+ 				numRunsLeft: job.numRunsLeft - 1,
+ 				allocationId: generateAllocationId(),
+ 				expireAt: new Date((/* @__PURE__ */ new Date()).getTime() + options.timeoutSecs * 1e3)
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 7338129..3230d53 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -155,6 +155,9 @@ var SqliteQueue = class {
+ 			}
+ 			const result = txn.update(tasksTable).set({
+ 				status: "running",
++				// Dedupe only while queued: a job enqueued after this one has
++				// started must still run, or changes made meanwhile are lost.
++				idempotencyKey: null,
+ 				numRunsLeft: job.numRunsLeft - 1,
+ 				allocationId: generateAllocationId(),
+ 				expireAt: new Date((/* @__PURE__ */ new Date()).getTime() + options.timeoutSecs * 1e3)
