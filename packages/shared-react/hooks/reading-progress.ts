@@ -17,6 +17,11 @@ interface UseReadingProgressOptions {
    * callers can then gate what they report.
    */
   bannerDismissPercent?: number;
+  /**
+   * Restore the saved position on open instead of offering to. The banner then
+   * offers to start over, and saving is never held back by it.
+   */
+  autoResume?: boolean;
 }
 
 /**
@@ -25,7 +30,8 @@ interface UseReadingProgressOptions {
  * Handles:
  * - Fetching reading progress via its own tRPC query
  * - Capturing initial reading position (stable across query re-fetches)
- * - "Continue reading" banner state and auto-dismiss on scroll past 15%
+ * - "Continue reading" banner state and auto-dismiss on scroll past 15%, or
+ *   with `autoResume`, restoring right away and offering to start over
  * - Lazy saving via onSavePosition (idle, visibility change, unmount)
  * - Deduplication of save calls by offset
  *
@@ -36,6 +42,7 @@ export function useReadingProgress({
   bannerMinPercent = 10,
   bannerMinOffset = 1,
   bannerDismissPercent = 15,
+  autoResume = false,
 }: UseReadingProgressOptions) {
   const api = useTRPC();
   const queryClient = useQueryClient();
@@ -96,20 +103,32 @@ export function useReadingProgress({
   // Banner state
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [restoreRequested, setRestoreRequested] = useState(false);
-  const showBanner =
+  const [restartRequested, setRestartRequested] = useState(false);
+  const hasResumableProgress =
     !!initialOffset &&
     initialOffset >= bannerMinOffset &&
     initialPercent != null &&
     initialPercent >= bannerMinPercent &&
-    initialPercent < 100 &&
-    !bannerDismissed;
+    initialPercent < 100;
+  const showBanner = hasResumableProgress && !bannerDismissed;
+  const restorePosition = autoResume
+    ? hasResumableProgress && !restartRequested
+    : restoreRequested;
 
-  const bannerVisibleRef = useRef(false);
-  bannerVisibleRef.current = showBanner;
+  // Saves are held back while the reader sits at the top and would overwrite
+  // the saved position: behind an unanswered "continue?" banner, or, when
+  // resuming automatically, until the saved position is known.
+  const holdSavesRef = useRef(false);
+  holdSavesRef.current = autoResume
+    ? !initialProgressRef.current
+    : showBanner;
+  const showBannerRef = useRef(false);
+  showBannerRef.current = showBanner;
 
   useEffect(() => {
     setBannerDismissed(false);
     setRestoreRequested(false);
+    setRestartRequested(false);
   }, [bookmarkId]);
 
   // Save mutation. Saves often fire on unmount, after which invalidating the
@@ -148,7 +167,7 @@ export function useReadingProgress({
   // Lazy save — called by ScrollProgressTracker on idle/visibility/beforeunload/unmount
   const onSavePosition = useCallback(
     (position: ReadingPosition) => {
-      if (bannerVisibleRef.current) return;
+      if (holdSavesRef.current) return;
       if (lastSavedOffset.current === position.offset) return;
       lastSavedOffset.current = position.offset;
       updateProgress({
@@ -164,11 +183,15 @@ export function useReadingProgress({
   // Responsive — called on every throttled scroll for banner dismissal
   const onScrollPositionChange = useCallback(
     (position: ReadingPosition) => {
-      if (bannerVisibleRef.current && position.percent > bannerDismissPercent) {
+      if (
+        !autoResume &&
+        showBannerRef.current &&
+        position.percent > bannerDismissPercent
+      ) {
         setBannerDismissed(true);
       }
     },
-    [bannerDismissPercent],
+    [autoResume, bannerDismissPercent],
   );
 
   const onContinue = useCallback(() => {
@@ -180,14 +203,20 @@ export function useReadingProgress({
     setBannerDismissed(true);
   }, []);
 
+  const onRestart = useCallback(() => {
+    setRestartRequested(true);
+    setBannerDismissed(true);
+  }, []);
+
   return {
     // Banner
     showBanner,
     bannerPercent: initialPercent,
     onContinue,
     onDismiss,
+    onRestart,
     // ScrollProgressTracker props
-    restorePosition: restoreRequested,
+    restorePosition,
     readingProgressOffset: initialOffset,
     readingProgressAnchor: initialAnchor,
     onSavePosition,
