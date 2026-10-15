@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Linking, Pressable, TouchableOpacity, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import ImageView from "react-native-image-viewing";
 import WebView from "react-native-webview";
 import {
@@ -18,7 +18,6 @@ import { useReaderSettings, WEBVIEW_FONT_FAMILIES } from "@/lib/readerSettings";
 import useAppSettings from "@/lib/settings";
 import { useColorScheme } from "@/lib/useColorScheme";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, X } from "lucide-react-native";
 
 import {
   useCreateHighlight,
@@ -32,6 +31,7 @@ import { BookmarkTypes, ZBookmark } from "@karakeep/shared/types/bookmarks";
 import BookmarkAssetImage from "./BookmarkAssetImage";
 import BookmarkHtmlHighlighterDom from "./BookmarkHtmlHighlighterDom";
 import { PDFViewer } from "./PDFViewer";
+import { ResumedReadingBanner } from "./ResumedReadingBanner";
 
 function openUrlExternally(url: string) {
   if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -159,8 +159,8 @@ export function BookmarkLinkReaderPreview({
   const {
     showBanner,
     bannerPercent,
-    onContinue,
     onDismiss,
+    onRestart,
     restorePosition,
     readingProgressOffset,
     readingProgressAnchor,
@@ -168,6 +168,7 @@ export function BookmarkLinkReaderPreview({
     onScrollPositionChange,
   } = useReadingProgress({
     bookmarkId: bookmark.id,
+    autoResume: true,
   });
 
   const [viewingImage, setViewingImage] = useState<string | null>(null);
@@ -207,25 +208,11 @@ export function BookmarkLinkReaderPreview({
         images={viewingImage ? [{ uri: viewingImage }] : []}
       />
       {showBanner && (
-        <View className="flex-row items-center gap-2 border-b border-border bg-background px-4 py-2">
-          <BookOpen size={16} className="text-muted-foreground" />
-          <Text className="flex-1 text-sm text-muted-foreground">
-            {bannerPercent && bannerPercent > 0
-              ? `Continue where you left off (${bannerPercent}%)`
-              : "Continue where you left off"}
-          </Text>
-          <TouchableOpacity
-            onPress={onContinue}
-            className="rounded-md bg-primary px-3 py-1"
-          >
-            <Text className="text-xs font-medium text-primary-foreground">
-              Continue
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onDismiss} className="p-1">
-            <X size={14} className="text-muted-foreground" />
-          </TouchableOpacity>
-        </View>
+        <ResumedReadingBanner
+          percent={bannerPercent}
+          onRestart={onRestart}
+          onDismiss={onDismiss}
+        />
       )}
       <BookmarkHtmlHighlighterDom
         htmlContent={displayedBookmarkWithContent.content.htmlContent ?? ""}

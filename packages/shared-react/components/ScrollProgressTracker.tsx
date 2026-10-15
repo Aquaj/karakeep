@@ -100,6 +100,17 @@ const ScrollProgressTracker = forwardRef<
   // Restore reading position when triggered
   const hasRestoredRef = useRef(false);
   useEffect(() => {
+    // Withdrawing a restore that already happened means "start over"
+    if (!restorePosition && hasRestoredRef.current) {
+      hasRestoredRef.current = false;
+      const container = containerRef.current;
+      if (!container) return;
+      const scrollParent = findScrollableParent(container);
+      const target =
+        scrollParent === document.documentElement ? window : scrollParent;
+      target.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     if (
       !restorePosition ||
       hasRestoredRef.current ||

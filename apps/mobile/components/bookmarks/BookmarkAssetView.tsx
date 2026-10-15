@@ -3,10 +3,10 @@ import { Alert, Pressable, TouchableOpacity, View } from "react-native";
 import ImageView from "react-native-image-viewing";
 import BookmarkAssetImage from "@/components/bookmarks/BookmarkAssetImage";
 import { PDFViewer } from "@/components/bookmarks/PDFViewer";
-import { Text } from "@/components/ui/Text";
+import { ResumedReadingBanner } from "@/components/bookmarks/ResumedReadingBanner";
 import { useToast } from "@/components/ui/Toast";
 import { useAssetUrl } from "@/lib/hooks";
-import { BookOpen, Image as ImageIcon, X } from "lucide-react-native";
+import { Image as ImageIcon } from "lucide-react-native";
 
 import type { ReadingPosition } from "@karakeep/shared/utils/reading-progress-dom";
 import { useSetPdfPreviewFromPage } from "@karakeep/shared-react/hooks/assets";
@@ -22,8 +22,6 @@ interface BookmarkAssetViewProps {
 const PROGRESS_BAR_HIDE_DELAY_MS = 2000;
 /** Idle time after the last page change before the position is saved */
 const SAVE_IDLE_DELAY_MS = 3000;
-/** Moving this many pages from where the document opened dismisses the resume banner */
-const BANNER_DISMISS_PAGE_DISTANCE = 2;
 
 /**
  * PDF reading progress is page-based: the saved offset is the current page,
@@ -55,18 +53,17 @@ function PdfAssetView({
   const {
     showBanner,
     bannerPercent,
-    onContinue,
     onDismiss,
+    onRestart,
     restorePosition,
     readingProgressOffset,
     onSavePosition,
-    onScrollPositionChange,
   } = useReadingProgress({
     bookmarkId,
     // Page-based: a few pages into a long book is well under 10%
     bannerMinPercent: 0,
     bannerMinOffset: 2,
-    bannerDismissPercent: -1,
+    autoResume: true,
   });
 
   // The requested resume page is only handed to the viewer once the document
@@ -87,7 +84,6 @@ function PdfAssetView({
   const latestPositionRef = useRef<ReadingPosition | null>(null);
   const onSavePositionRef = useRef(onSavePosition);
   onSavePositionRef.current = onSavePosition;
-  const startPageRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {
       if (hideBarTimer.current) clearTimeout(hideBarTimer.current);
@@ -101,6 +97,9 @@ function PdfAssetView({
   useEffect(() => {
     if (restorePosition && readingProgressOffset && readingProgressOffset > 0) {
       setPendingPage(readingProgressOffset);
+    } else if (!restorePosition) {
+      // Starting over after a resume; a no-op if nothing was restored
+      setPendingPage((page) => (page === undefined ? undefined : 1));
     }
   }, [restorePosition, readingProgressOffset]);
 
@@ -123,15 +122,6 @@ function PdfAssetView({
         PROGRESS_BAR_HIDE_DELAY_MS,
       );
 
-      if (startPageRef.current === null) {
-        startPageRef.current = page;
-      }
-      if (
-        Math.abs(page - startPageRef.current) >= BANNER_DISMISS_PAGE_DISTANCE
-      ) {
-        onScrollPositionChange(position);
-      }
-
       latestPositionRef.current = position;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
@@ -139,31 +129,17 @@ function PdfAssetView({
         onSavePositionRef.current(position);
       }, SAVE_IDLE_DELAY_MS);
     },
-    [onScrollPositionChange],
+    [],
   );
 
   return (
     <View className="flex flex-1">
       {showBanner && (
-        <View className="flex-row items-center gap-2 border-b border-border bg-background px-4 py-2">
-          <BookOpen size={16} className="text-muted-foreground" />
-          <Text className="flex-1 text-sm text-muted-foreground">
-            {bannerPercent && bannerPercent > 0
-              ? `Continue where you left off (${bannerPercent}%)`
-              : "Continue where you left off"}
-          </Text>
-          <TouchableOpacity
-            onPress={onContinue}
-            className="rounded-md bg-primary px-3 py-1"
-          >
-            <Text className="text-xs font-medium text-primary-foreground">
-              Continue
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onDismiss} className="p-1">
-            <X size={14} className="text-muted-foreground" />
-          </TouchableOpacity>
-        </View>
+        <ResumedReadingBanner
+          percent={bannerPercent}
+          onRestart={onRestart}
+          onDismiss={onDismiss}
+        />
       )}
       <View className="relative flex-1">
         <PDFViewer
