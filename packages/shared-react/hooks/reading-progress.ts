@@ -119,9 +119,7 @@ export function useReadingProgress({
   // the saved position: behind an unanswered "continue?" banner, or, when
   // resuming automatically, until the saved position is known.
   const holdSavesRef = useRef(false);
-  holdSavesRef.current = autoResume
-    ? !initialProgressRef.current
-    : showBanner;
+  holdSavesRef.current = autoResume ? !initialProgressRef.current : showBanner;
   const showBannerRef = useRef(false);
   showBannerRef.current = showBanner;
 
