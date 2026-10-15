@@ -7,15 +7,17 @@ import {
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { Link, router } from "expo-router";
+import { Link, router, Stack } from "expo-router";
+import GroupedListSection from "@/components/lists/GroupedListSection";
 import QueryPageState from "@/components/QueryPageState";
 import ChevronRight from "@/components/ui/ChevronRight";
 import { FAB } from "@/components/ui/FAB";
 import { Text } from "@/components/ui/Text";
+import useAppSettings from "@/lib/settings";
 import { useColorScheme } from "@/lib/useColorScheme";
 import { condProps } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Plus } from "lucide-react-native";
+import { ChevronDown, ListTree, Plus, Rows3 } from "lucide-react-native";
 
 import { useBookmarkLists } from "@karakeep/shared-react/hooks/lists";
 import { useTRPC } from "@karakeep/shared-react/trpc";
@@ -74,6 +76,57 @@ function traverseTree(
   }
 }
 
+interface GroupedSection {
+  id: string;
+  title: string;
+  href: string;
+  filter: { listId: string } | { favourited: true };
+  numBookmarks?: number;
+}
+
+/** Every list as a section, in tree order, named with its parents */
+function collectSections(
+  node: ZBookmarkListTreeNode,
+  sections: GroupedSection[],
+  listStats?: Map<string, number>,
+  parentPath?: string,
+) {
+  const path = parentPath
+    ? `${parentPath} › ${node.item.name}`
+    : node.item.name;
+  sections.push({
+    id: node.item.id,
+    title: `${node.item.icon} ${path}`,
+    href: `/dashboard/lists/${node.item.id}`,
+    filter: { listId: node.item.id },
+    numBookmarks: listStats?.get(node.item.id),
+  });
+  [...(node.children ?? [])]
+    .sort(byName)
+    .forEach((child) => collectSections(child, sections, listStats, path));
+}
+
+function ListsViewToggle() {
+  const { settings, setSettings } = useAppSettings();
+  const { colors } = useColorScheme();
+  const grouped = settings.listsView === "grouped";
+  const Icon = grouped ? ListTree : Rows3;
+  return (
+    <Pressable
+      accessibilityLabel={
+        grouped ? "Show lists as a tree" : "Group bookmarks by list"
+      }
+      hitSlop={8}
+      onPress={() => {
+        Haptics.selectionAsync();
+        setSettings({ ...settings, listsView: grouped ? "tree" : "grouped" });
+      }}
+    >
+      <Icon size={22} color={colors.foreground} />
+    </Pressable>
+  );
+}
+
 export default function Lists() {
   const { colors } = useColorScheme();
   const [refreshing, setRefreshing] = useState(false);
@@ -84,6 +137,7 @@ export default function Lists() {
   const api = useTRPC();
   const queryClient = useQueryClient();
   const { data: listStats } = useQuery(api.lists.stats.queryOptions());
+  const { settings } = useAppSettings();
 
   // Check if there are any shared lists
   const hasSharedLists = useMemo(() => {
@@ -112,7 +166,55 @@ export default function Lists() {
   const onRefresh = () => {
     queryClient.invalidateQueries(api.lists.list.pathFilter());
     queryClient.invalidateQueries(api.lists.stats.pathFilter());
+    if (settings.listsView === "grouped") {
+      queryClient.invalidateQueries(api.bookmarks.getBookmarks.pathFilter());
+    }
   };
+
+  const header = (
+    <Stack.Screen options={{ headerRight: () => <ListsViewToggle /> }} />
+  );
+
+  if (settings.listsView === "grouped") {
+    const sections: GroupedSection[] = [
+      {
+        id: "fav",
+        title: "⭐️ Favourites",
+        href: "/dashboard/favourites",
+        filter: { favourited: true },
+      },
+    ];
+    const roots = Object.values(lists.root).sort(byName);
+    // Own lists first, then the ones shared with the user
+    for (const owned of [true, false]) {
+      roots
+        .filter((list) => (list.item.userRole === "owner") === owned)
+        .forEach((list) => collectSections(list, sections, listStats?.stats));
+    }
+
+    return (
+      <>
+        {header}
+        <FlatList
+          className="h-full"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{ gap: 20, paddingTop: 8, paddingBottom: 20 }}
+          data={sections}
+          keyExtractor={(section) => section.id}
+          renderItem={({ item }) => (
+            <GroupedListSection
+              title={item.title}
+              href={item.href}
+              filter={item.filter}
+              numBookmarks={item.numBookmarks}
+            />
+          )}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+        />
+      </>
+    );
+  }
 
   const links: ListLink[] = [
     {
@@ -183,6 +285,7 @@ export default function Lists() {
 
   return (
     <>
+      {header}
       <FlatList
         className="h-full"
         contentInsetAdjustmentBehavior="automatic"
